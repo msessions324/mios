@@ -8,8 +8,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="theme-color" content="#06090b" />
 <link rel="manifest" href="manifest.json" />
-<link rel="icon" href="icons/favicon-32.png" sizes="32x32" />
-<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<link rel="icon" href="icon-512.png" />
+<link rel="apple-touch-icon" href="icon-512.png" />
 <title>MIOS — Marcus Industries</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -220,10 +220,10 @@ function useClock() {
 }
 
 function StatusLED({ status }) {
-  const map = { ok: "var(--green-ok)", sim: "var(--amber)", down: "var(--red-alert)", pending: "var(--text-dim)" };
+  const map = { ok: "var(--green-ok)", sim: "var(--amber)", down: "var(--red-alert)", warn: "var(--red-alert)", pending: "var(--text-dim)" };
   return <span style={{ display:"inline-block", width:7, height:7, borderRadius:"50%", background:map[status]||map.pending,
-    boxShadow: status==="ok" ? "0 0 6px var(--green-ok)" : status==="down" ? "0 0 6px var(--red-alert)" : "none",
-    animation: status==="pending" ? "blink 1.1s infinite" : "none", flexShrink:0 }} />;
+    boxShadow: status==="ok" ? "0 0 6px var(--green-ok)" : (status==="down"||status==="warn") ? "0 0 6px var(--red-alert)" : "none",
+    animation: (status==="pending"||status==="warn") ? "blink 1.1s infinite" : "none", flexShrink:0 }} />;
 }
 
 function AppShell({ title, icon, status, onBack, onRefresh, children }) {
@@ -1055,7 +1055,7 @@ function MIOS() {
   const setStatusFor = (id) => (s) => setModuleStatus(prev => ({...prev, [id]: s}));
   const localTime = now.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",hour12:false});
   const dateStr = now.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
-  const liveCount = LIVE_APP_IDS.filter(id => moduleStatus[id]==="ok").length;
+  const liveCount = LIVE_APP_IDS.filter(id => moduleStatus[id]==="ok" || moduleStatus[id]==="warn").length;
   const goBack = () => setScreen("home");
   const renderApp = () => {
     switch (screen) {
