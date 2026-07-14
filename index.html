@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="theme-color" content="#06090b" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<title>MIOS — Marcus Industries</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #06090b; }
+  body {
+    --bg-void: #06090b; --bg-panel: #0d1418; --bg-panel-2: #0f171b; --line: #1c2a2f;
+    --amber: #ffb400; --cyan: #6fe3ff; --green-ok: #4fd88c; --red-alert: #ff5a5f;
+    --text-primary: #dbe9ea; --text-dim: #5c7278;
+    color: var(--text-primary); font-family: 'JetBrains Mono', monospace;
+  }
+  button { font-family: inherit; cursor: pointer; }
+  input, select, textarea { font-family: inherit; }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+  @keyframes sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+  .status-bar { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); background: linear-gradient(180deg, var(--bg-panel-2), var(--bg-panel)); padding: 12px 14px; }
+  .status-bar::after { content:''; position:absolute; top:0; left:0; width:40%; height:100%; background: linear-gradient(90deg, transparent, rgba(255,180,0,0.045), transparent); animation: sweep 8s linear infinite; pointer-events:none; }
+  .status-bar-top { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:6px; }
+  .callsign { font-family:'Oswald',sans-serif; font-weight:600; letter-spacing:0.08em; font-size:15px; color:var(--amber); text-transform:uppercase; }
+  .callsign small { font-family:'JetBrains Mono',monospace; color:var(--text-dim); font-weight:400; letter-spacing:0.03em; margin-left:8px; font-size:10px; }
+  .clock-block { text-align:right; font-size:11px; color:var(--text-dim); line-height:1.4; }
+  .clock-block .big-time { font-size:17px; color:var(--cyan); font-weight:600; }
+  .status-bar-sub { margin-top:8px; display:flex; gap:14px; flex-wrap:wrap; font-size:9px; color:var(--text-dim); letter-spacing:0.05em; }
+  .status-bar-sub b { color:var(--text-primary); font-weight:500; }
+  .app-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; padding:12px; max-width:900px; margin:0 auto; }
+  @media (min-width:640px) { .app-grid { grid-template-columns:repeat(4,1fr); } }
+  .app-icon-btn { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:16px 6px; border:1px solid var(--line); background:var(--bg-panel); color:var(--text-primary); text-align:center; position:relative; }
+  .app-icon-btn:active { background:var(--bg-panel-2); }
+  .app-icon-glyph { width:34px; height:34px; border-radius:8px; display:flex; align-items:center; justify-content:center; border:1px solid var(--line); font-size:16px; }
+  .app-icon-label { font-size:9px; letter-spacing:0.04em; line-height:1.3; }
+  .app-icon-led { position:absolute; top:6px; right:6px; }
+  .footer { text-align:center; font-size:9px; color:var(--text-dim); letter-spacing:0.05em; padding:6px 0 20px; }
+  .app-shell { min-height:100vh; max-width:900px; margin:0 auto; display:flex; flex-direction:column; }
+  .app-shell-head { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line); background:var(--bg-panel-2); color:var(--amber); }
+  .app-shell-title { font-family:'Oswald',sans-serif; letter-spacing:0.1em; font-weight:500; font-size:12px; }
+  .app-shell-right { margin-left:auto; display:flex; align-items:center; gap:10px; }
+  .app-shell-body { padding:14px; flex:1; font-size:12px; }
+  .icon-btn { background:none; border:none; color:var(--text-dim); display:flex; padding:3px; font-size:14px; }
+  .icon-btn:hover { color:var(--cyan); }
+  .back-btn { color:var(--text-primary); font-size:16px; }
+  .eyebrow { font-family:'Oswald',sans-serif; letter-spacing:0.1em; font-weight:500; }
+  .muted { color:var(--text-dim); font-size:11px; }
+  .small { font-size:10px; }
+  .nominal { color:var(--green-ok); font-size:11px; letter-spacing:0.03em; }
+  .timestamp { font-size:9px; color:var(--text-dim); }
+  .condition { font-size:11px; letter-spacing:0.05em; color:var(--text-primary); }
+  .sim-banner { background:rgba(255,180,0,0.08); border:1px solid rgba(255,180,0,0.25); color:var(--amber); font-size:9.5px; letter-spacing:0.03em; padding:6px 8px; line-height:1.5; }
+  .weather-hero { display:flex; align-items:center; gap:14px; margin-bottom:12px; margin-top:4px; }
+  .temp-big { font-size:42px; font-weight:700; color:var(--cyan); line-height:1; }
+  .weather-hero-meta { display:flex; flex-direction:column; gap:3px; }
+  .stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:12px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); padding:8px 0; }
+  .stat { display:flex; flex-direction:column; gap:2px; }
+  .stat-label { font-size:8px; color:var(--text-dim); letter-spacing:0.06em; }
+  .stat-val { font-size:11px; color:var(--text-primary); font-weight:500; }
+  .forecast-row { display:flex; justify-content:space-between; gap:4px; }
+  .forecast-cell { text-align:center; font-size:10px; flex:1; }
+  .fc-hi { color:var(--amber); font-weight:600; margin:2px 0; }
+  .alert-list { display:flex; flex-direction:column; gap:8px; }
+  .alert-item { border-left:2px solid var(--red-alert); padding-left:8px; }
+  .alert-tag { display:inline-block; font-size:8px; letter-spacing:0.06em; padding:1px 5px; margin-bottom:3px; font-weight:600; }
+  .sev-high { background:rgba(255,90,95,0.15); color:var(--red-alert); }
+  .sev-mid { background:rgba(255,180,0,0.15); color:var(--amber); }
+  .sev-low { background:rgba(111,227,255,0.12); color:var(--cyan); }
+  .alert-event { font-size:11px; color:var(--text-primary); margin-bottom:2px; }
+  .alert-expires { font-size:9px; }
+  .flight-table { display:flex; flex-direction:column; gap:3px; }
+  .flight-row { display:grid; grid-template-columns:1.6fr 1fr 0.8fr 0.7fr 0.7fr; font-size:10px; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.04); color:var(--text-primary); }
+  .flight-head { color:var(--text-dim); font-size:8px; letter-spacing:0.05em; border-bottom:1px solid var(--line); }
+  .mono-strong { color:var(--cyan); font-weight:600; }
+  .habit-list { display:flex; flex-direction:column; gap:6px; }
+  .habit-row { display:flex; align-items:center; gap:10px; border:1px solid var(--line); background:var(--bg-panel-2); padding:10px; color:var(--text-primary); font-size:11px; letter-spacing:0.04em; text-align:left; }
+  .habit-done { border-color:var(--green-ok); }
+  .habit-box { width:16px; height:16px; border:1px solid var(--text-dim); display:flex; align-items:center; justify-content:center; flex-shrink:0; color:var(--bg-void); font-size:10px; }
+  .habit-box-done { background:var(--green-ok); border-color:var(--green-ok); }
+  .text-input, .select-input, .text-area { width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--text-primary); padding:9px 10px; font-size:12px; }
+  .text-area { min-height:70px; resize:vertical; }
+  .add-row { display:flex; gap:6px; margin-bottom:12px; }
+  .add-btn { border:1px solid var(--line); background:var(--bg-panel-2); color:var(--cyan); padding:0 10px; }
+  .full-btn { width:100%; margin-top:8px; background:var(--bg-panel-2); border:1px solid var(--amber); color:var(--amber); padding:9px; font-size:11px; letter-spacing:0.06em; }
+  .project-list { display:flex; flex-direction:column; gap:8px; }
+  .project-item { border:1px solid var(--line); background:var(--bg-panel-2); padding:9px 10px; }
+  .project-item-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+  .project-name { font-size:11.5px; color:var(--text-primary); }
+  .stage-pill { font-size:9px; letter-spacing:0.05em; padding:3px 7px; border:1px solid var(--line); background:transparent; }
+  .stage-planning { color:var(--text-dim); }
+  .stage-in-progress { color:var(--cyan); border-color:var(--cyan); }
+  .stage-testing { color:var(--amber); border-color:var(--amber); }
+  .stage-done { color:var(--green-ok); border-color:var(--green-ok); }
+  .note-list { display:flex; flex-direction:column; gap:8px; margin-top:12px; }
+  .note-item { border:1px solid var(--line); background:var(--bg-panel-2); padding:9px 10px; }
+  .note-text { font-size:11.5px; color:var(--text-primary); margin-bottom:6px; white-space:pre-wrap; }
+  .note-foot { display:flex; justify-content:space-between; align-items:center; }
+  .pill-row { display:flex; gap:6px; flex-wrap:wrap; }
+  .pill { font-size:9px; letter-spacing:0.05em; padding:6px 9px; border:1px solid var(--line); background:var(--bg-panel-2); color:var(--text-dim); }
+  .pill-active { color:var(--amber); border-color:var(--amber); }
+  .convert-row { display:flex; align-items:center; gap:8px; margin-top:10px; }
+  .convert-result { margin-top:16px; font-size:30px; color:var(--cyan); font-weight:700; }
+
+  .brief-line { padding: 8px 14px 0; font-size: 10.5px; color: var(--cyan); letter-spacing: 0.03em; max-width:900px; margin:0 auto; line-height:1.6; }
+  .brief-line .sep { color: var(--text-dim); margin: 0 6px; }
+
+  .fab { position: fixed; right: 16px; bottom: 20px; width: 52px; height: 52px; border-radius: 50%;
+    background: var(--amber); color: var(--bg-void); border: none; font-size: 20px; z-index: 40;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; }
+
+  .palette-overlay { position: fixed; inset: 0; background: rgba(6,9,11,0.92); z-index: 100;
+    display:flex; flex-direction:column; padding: 14px; backdrop-filter: blur(2px); }
+  .palette-box { max-width: 640px; width:100%; margin: 0 auto; display:flex; flex-direction:column; height:100%; }
+  .palette-input-row { display:flex; gap:8px; align-items:center; border:1px solid var(--amber); background:var(--bg-panel); padding:10px 12px; }
+  .palette-input { flex:1; background:none; border:none; color:var(--text-primary); font-size:14px; outline:none; }
+  .palette-mic { background:none; border:1px solid var(--line); color:var(--text-dim); border-radius:6px; padding:6px 9px; font-size:14px; }
+  .palette-mic.listening { color: var(--red-alert); border-color: var(--red-alert); animation: blink 1s infinite; }
+  .palette-close { background:none; border:none; color:var(--text-dim); font-size:18px; padding:4px 8px; }
+  .palette-results { margin-top:10px; overflow-y:auto; flex:1; }
+  .palette-result { display:flex; justify-content:space-between; align-items:center; padding:11px 12px; border:1px solid var(--line); background:var(--bg-panel); margin-bottom:6px; }
+  .palette-result:active { background: var(--bg-panel-2); }
+  .palette-result-label { font-size:12px; color:var(--text-primary); }
+  .palette-result-tag { font-size:8px; color:var(--text-dim); letter-spacing:0.05em; border:1px solid var(--line); padding:2px 6px; }
+  .palette-hint { color:var(--text-dim); font-size:9.5px; margin-top:10px; line-height:1.7; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/plain" id="app-source">
+
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ---------------------------------------------------------------------------
+// Cedar City, UT reference point
+// ---------------------------------------------------------------------------
+const LAT = 37.6775;
+const LON = -113.0619;
+const ELEV_FT = 5623;
+const BBOX = { lamin: 36.88, lamax: 38.48, lomin: -114.06, lomax: -112.06 };
+
+const DEFAULT_AIO_USERNAME = "MIOS";
+const DEFAULT_AIO_KEY = "aio_eHzH37bfkAOTTnS0qYtk94LUGufy";
+const LONGSHOT_FEEDS = ["longshot-temp", "longshot-pressure", "longshot-lat", "longshot-lon", "longshot-rssi"];
+const DEFAULT_HABIT_ITEMS = [
+  { key: "school", label: "SCHOOL" },
+  { key: "gym", label: "GYM" },
+  { key: "eating", label: "EATING" },
+  { key: "finance", label: "FINANCE" },
+];
+
+const WMO = {
+  0: "CLEAR", 1: "MOSTLY CLEAR", 2: "PARTLY CLOUDY", 3: "OVERCAST",
+  45: "FOG", 48: "RIME FOG",
+  51: "LIGHT DRIZZLE", 53: "DRIZZLE", 55: "HEAVY DRIZZLE",
+  61: "LIGHT RAIN", 63: "RAIN", 65: "HEAVY RAIN",
+  71: "LIGHT SNOW", 73: "SNOW", 75: "HEAVY SNOW", 77: "SNOW GRAINS",
+  80: "RAIN SHOWERS", 81: "RAIN SHOWERS", 82: "VIOLENT SHOWERS",
+  85: "SNOW SHOWERS", 86: "HEAVY SNOW SHOWERS",
+  95: "THUNDERSTORM", 96: "T-STORM / HAIL", 99: "SEVERE T-STORM",
+};
+
+const ICONS = {
+  weather: "☁", storm: "⚠", flights: "✈", iss: "◎", longshot: "▲",
+  habits: "☑", projects: "⚙", notes: "✎", units: "▭", countdown: "◷",
+  coursework: "🎓", settings: "🛠", backup: "💾",
+  back: "←", refresh: "↻", plus: "+", trash: "✕", check: "✓",
+};
+
+function fetchWithTimeout(url, opts = {}, ms = 6000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(id));
+}
+async function fetchWithRetry(url, opts = {}, attempts = 2, ms = 6000) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetchWithTimeout(url, opts, ms);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 1200));
+    }
+  }
+  throw lastErr;
+}
+async function loadJSON(key, fallback) {
+  try {
+    const v = localStorage.getItem(key);
+    return v ? JSON.parse(v) : fallback;
+  } catch (e) { return fallback; }
+}
+async function saveJSON(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+}
+function todayKey(d = new Date()) { return d.toISOString().slice(0, 10); }
+function nmDistance(lat1, lon1, lat2, lon2) {
+  const R = 3440.065;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function useClock() {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => { const id = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(id); }, []);
+  return now;
+}
+
+function StatusLED({ status }) {
+  const map = { ok: "var(--green-ok)", sim: "var(--amber)", down: "var(--red-alert)", pending: "var(--text-dim)" };
+  return <span style={{ display:"inline-block", width:7, height:7, borderRadius:"50%", background:map[status]||map.pending,
+    boxShadow: status==="ok" ? "0 0 6px var(--green-ok)" : status==="down" ? "0 0 6px var(--red-alert)" : "none",
+    animation: status==="pending" ? "blink 1.1s infinite" : "none", flexShrink:0 }} />;
+}
+
+function AppShell({ title, icon, status, onBack, onRefresh, children }) {
+  return (
+    <div className="app-shell">
+      <div className="app-shell-head">
+        <button className="icon-btn back-btn" onClick={onBack}>{ICONS.back}</button>
+        <span>{icon}</span>
+        <span className="app-shell-title">{title}</span>
+        <div className="app-shell-right">
+          {onRefresh && <button className="icon-btn" onClick={onRefresh}>{ICONS.refresh}</button>}
+          {status && <StatusLED status={status} />}
+        </div>
+      </div>
+      <div className="app-shell-body">{children}</div>
+    </div>
+  );
+}
+function SimBanner({ text }) { return <div className="sim-banner">⚠ {text}</div>; }
+
+// ---------- WEATHER ----------
+function simulatedWeather() {
+  const high = 88 + Math.round(Math.random()*8), low = 56 + Math.round(Math.random()*8);
+  const temp = Math.round((high+low)/2 + (Math.random()*6-3));
+  return {
+    current: { temperature_2m: temp, apparent_temperature: temp-2, relative_humidity_2m: 18+Math.round(Math.random()*15),
+      wind_speed_10m: 5+Math.round(Math.random()*10), wind_gusts_10m: 12+Math.round(Math.random()*12),
+      pressure_msl: 1013+Math.round(Math.random()*6-3), weather_code: 1 },
+    daily: { time: Array.from({length:5},(_,i)=>{const d=new Date();d.setDate(d.getDate()+i);return d.toISOString().slice(0,10);}),
+      temperature_2m_max: Array.from({length:5},()=>high+Math.round(Math.random()*4-2)),
+      temperature_2m_min: Array.from({length:5},()=>low+Math.round(Math.random()*4-2)) },
+    _simulated: true,
+  };
+}
+function WeatherApp({ onBack, onStatus }) {
+  const [data, setData] = useState(null);
+  const [status, setStatus] = useState("pending");
+  const [updated, setUpdated] = useState("");
+  const load = useCallback(async () => {
+    setStatus("pending");
+    try {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,wind_gusts_10m,pressure_msl,weather_code&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=America%2FDenver&forecast_days=5`;
+      const json = await fetchWithRetry(url);
+      setData(json); setStatus("ok");
+    } catch (e) { setData(simulatedWeather()); setStatus("sim"); }
+    setUpdated(new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { onStatus?.(status); }, [status]);
+  const c = data?.current, days = data?.daily;
+  return (
+    <AppShell title="WEATHER · CEDAR CITY" icon={ICONS.weather} status={status} onBack={onBack} onRefresh={load}>
+      {!data && <div className="muted">ACQUIRING…</div>}
+      {data?._simulated && <SimBanner text="LIVE LINK UNAVAILABLE — SHOWING TYPICAL JULY CONDITIONS" />}
+      {c && <>
+        <div className="weather-hero">
+          <div className="temp-big">{Math.round(c.temperature_2m)}°</div>
+          <div className="weather-hero-meta"><div className="condition">{WMO[c.weather_code] ?? "—"}</div><div className="muted">FEELS {Math.round(c.apparent_temperature)}°</div></div>
+        </div>
+        <div className="stat-grid">
+          <div className="stat"><span className="stat-label">WIND</span><span className="stat-val">{Math.round(c.wind_speed_10m)} MPH</span></div>
+          <div className="stat"><span className="stat-label">GUST</span><span className="stat-val">{Math.round(c.wind_gusts_10m)} MPH</span></div>
+          <div className="stat"><span className="stat-label">HUMID</span><span className="stat-val">{Math.round(c.relative_humidity_2m)}%</span></div>
+          <div className="stat"><span className="stat-label">PRESS</span><span className="stat-val">{Math.round(c.pressure_msl)} hPa</span></div>
+        </div>
+        {days && <div className="forecast-row">
+          {days.time.slice(0,5).map((d,i)=>(
+            <div className="forecast-cell" key={d}>
+              <div className="muted">{new Date(d+"T12:00:00").toLocaleDateString("en-US",{weekday:"short"})}</div>
+              <div className="fc-hi">{Math.round(days.temperature_2m_max[i])}°</div>
+              <div className="muted">{Math.round(days.temperature_2m_min[i])}°</div>
+            </div>
+          ))}
+        </div>}
+        <div className="timestamp" style={{marginTop:10}}>UPDATED {updated}</div>
+      </>}
+    </AppShell>
+  );
+}
+
+// ---------- STORM ----------
+function StormApp({ onBack, onStatus }) {
+  const [alerts, setAlerts] = useState([]);
+  const [status, setStatus] = useState("pending");
+  const [updated, setUpdated] = useState("");
+  const load = useCallback(async () => {
+    setStatus("pending");
+    try {
+      const json = await fetchWithRetry(`https://api.weather.gov/alerts/active?point=${LAT},${LON}`, { headers: { Accept: "application/geo+json" } });
+      setAlerts(json.features || []); setStatus("ok");
+    } catch (e) { setAlerts([]); setStatus("down"); }
+    setUpdated(new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { onStatus?.(alerts.length ? "warn" : status); }, [status, alerts]);
+  const hasAlerts = alerts.length > 0;
+  return (
+    <AppShell title="STORM ALERTS · NWS" icon={ICONS.storm} status={status} onBack={onBack} onRefresh={load}>
+      {status==="pending" && alerts.length===0 && <div className="muted">SCANNING…</div>}
+      {status==="down" && <SimBanner text="COULD NOT REACH NWS — TRY REFRESH, OR CHECK WEATHER.GOV DIRECTLY" />}
+      {status==="ok" && !hasAlerts && <div className="nominal">◆ NO ACTIVE ALERTS FOR IRON COUNTY</div>}
+      {hasAlerts && <div className="alert-list">
+        {alerts.slice(0,6).map((f) => {
+          const p = f.properties, sev = (p.severity||"").toLowerCase();
+          const sevClass = sev==="extreme"||sev==="severe" ? "sev-high" : sev==="moderate" ? "sev-mid" : "sev-low";
+          return <div className="alert-item" key={f.id}>
+            <div className={`alert-tag ${sevClass}`}>{p.severity?.toUpperCase()||"ADVISORY"}</div>
+            <div className="alert-event">{p.event}</div>
+            <div className="muted alert-expires">EXPIRES {p.expires ? new Date(p.expires).toLocaleString("en-US",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}) : "—"}</div>
+          </div>;
+        })}
+      </div>}
+      <div className="timestamp" style={{marginTop:10}}>UPDATED {updated}</div>
+    </AppShell>
+  );
+}
+
+// ---------- FLIGHTS ----------
+function FlightApp({ onBack, onStatus }) {
+  const [flights, setFlights] = useState([]);
+  const [status, setStatus] = useState("pending");
+  const [updated, setUpdated] = useState("");
+  const load = useCallback(async () => {
+    setStatus("pending");
+    try {
+      const url = `https://opensky-network.org/api/states/all?lamin=${BBOX.lamin}&lomin=${BBOX.lomin}&lamax=${BBOX.lamax}&lomax=${BBOX.lomax}`;
+      const json = await fetchWithRetry(url, {}, 2, 7000);
+      const rows = (json.states||[]).filter(s=>s[5]!=null&&s[6]!=null&&!s[8]).map(s=>({
+        icao:s[0], callsign:(s[1]||"").trim()||"UNKNOWN", lon:s[5], lat:s[6],
+        altFt:s[7]!=null?Math.round(s[7]*3.28084):null, speedKt:s[9]!=null?Math.round(s[9]*1.94384):null,
+        heading:s[10]!=null?Math.round(s[10]):null,
+      })).map(f=>({...f, nm:nmDistance(LAT,LON,f.lat,f.lon)})).sort((a,b)=>a.nm-b.nm).slice(0,8);
+      setFlights(rows); setStatus("ok");
+    } catch (e) { setFlights([]); setStatus("down"); }
+    setUpdated(new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { onStatus?.(status); }, [status]);
+  return (
+    <AppShell title="FLIGHT TRACKER · KCDC" icon={ICONS.flights} status={status} onBack={onBack} onRefresh={load}>
+      {status==="pending" && flights.length===0 && <div className="muted">SWEEPING 65NM…</div>}
+      {status==="down" && <SimBanner text="OPENSKY FEED UNREACHABLE — LIKELY RATE-LIMITED, TRY REFRESH IN A MINUTE" />}
+      {status==="ok" && flights.length===0 && <div className="nominal">◆ NO TRAFFIC IN RANGE</div>}
+      {flights.length>0 && <div className="flight-table">
+        <div className="flight-row flight-head"><span>CALLSIGN</span><span>ALT</span><span>SPD</span><span>HDG</span><span>RNG</span></div>
+        {flights.map(f=>(
+          <div className="flight-row" key={f.icao}>
+            <span className="mono-strong">{f.callsign}</span>
+            <span>{f.altFt!=null?`${f.altFt.toLocaleString()}′`:"—"}</span>
+            <span>{f.speedKt!=null?`${f.speedKt}kt`:"—"}</span>
+            <span>{f.heading!=null?`${f.heading}°`:"—"}</span>
+            <span>{f.nm.toFixed(0)}nm</span>
+          </div>
+        ))}
+      </div>}
+      <div className="timestamp" style={{marginTop:10}}>UPDATED {updated}</div>
+    </AppShell>
+  );
+}
+
+// ---------- ISS ----------
+function IssApp({ onBack, onStatus }) {
+  const [iss, setIss] = useState(null);
+  const [status, setStatus] = useState("pending");
+  const [updated, setUpdated] = useState("");
+  const load = useCallback(async () => {
+    setStatus("pending");
+    try {
+      const json = await fetchWithRetry("https://api.wheretheiss.at/v1/satellites/25544", {}, 2, 6000);
+      setIss(json); setStatus("ok");
+    } catch (e) { setIss(null); setStatus("down"); }
+    setUpdated(new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { onStatus?.(status); }, [status]);
+  const distNm = iss ? nmDistance(LAT, LON, iss.latitude, iss.longitude) : null;
+  return (
+    <AppShell title="ISS TRACKER" icon={ICONS.iss} status={status} onBack={onBack} onRefresh={load}>
+      {status==="pending" && !iss && <div className="muted">ACQUIRING TLE…</div>}
+      {status==="down" && <>
+        <SimBanner text="LIVE POSITION FEED UNREACHABLE" />
+        <div className="muted" style={{marginTop:8,lineHeight:1.6}}>Typical parameters — altitude ≈ 408 km, velocity ≈ 27,600 km/h, orbital period ≈ 93 min.</div>
+      </>}
+      {iss && <>
+        <div className="stat-grid" style={{gridTemplateColumns:"repeat(2,1fr)"}}>
+          <div className="stat"><span className="stat-label">LAT</span><span className="stat-val">{iss.latitude.toFixed(2)}°</span></div>
+          <div className="stat"><span className="stat-label">LON</span><span className="stat-val">{iss.longitude.toFixed(2)}°</span></div>
+          <div className="stat"><span className="stat-label">ALT</span><span className="stat-val">{Math.round(iss.altitude)} km</span></div>
+          <div className="stat"><span className="stat-label">VEL</span><span className="stat-val">{Math.round(iss.velocity)} km/h</span></div>
+        </div>
+        <div className="condition" style={{marginTop:10}}>≈ {distNm?distNm.toFixed(0):"—"} NM FROM CEDAR CITY</div>
+        <div className="muted" style={{marginTop:4}}>{iss.visibility==="daylight"?"IN DAYLIGHT":"IN ECLIPSE"}</div>
+        <div className="timestamp" style={{marginTop:10}}>UPDATED {updated}</div>
+      </>}
+    </AppShell>
+  );
+}
+
+// ---------- LONGSHOT ----------
+function LongshotApp({ onBack, onStatus }) {
+  const [readings, setReadings] = useState(null);
+  const [status, setStatus] = useState("pending");
+  const [updated, setUpdated] = useState("");
+  const [dataAge, setDataAge] = useState("");
+  const load = useCallback(async () => {
+    setStatus("pending");
+    try {
+      const settings = await loadJSON("mios_settings", {});
+      const user = settings.aioUsername || DEFAULT_AIO_USERNAME;
+      const key = settings.aioKey || DEFAULT_AIO_KEY;
+      const results = await Promise.all(LONGSHOT_FEEDS.map(feed =>
+        fetchWithRetry(`https://io.adafruit.com/api/v2/${user}/feeds/${feed}/data/last?x-aio-key=${key}`, {}, 2, 6000)
+      ));
+      const [temp, pres, lat, lon, rssi] = results;
+      setReadings({ temp: parseFloat(temp.value), pres: parseFloat(pres.value), lat: parseFloat(lat.value),
+        lon: parseFloat(lon.value), rssi: parseFloat(rssi.value), createdAt: temp.created_at });
+      setStatus("ok");
+    } catch (e) { setStatus("down"); }
+    setUpdated(new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { onStatus?.(status); }, [status]);
+  useEffect(() => {
+    if (!readings?.createdAt) return;
+    const tick = () => {
+      const secs = Math.round((Date.now() - new Date(readings.createdAt).getTime())/1000);
+      setDataAge(secs<60 ? `${secs}s ago` : `${Math.round(secs/60)}m ago`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [readings]);
+  const distNm = readings ? nmDistance(LAT, LON, readings.lat, readings.lon) : null;
+  return (
+    <AppShell title="LONGSHOT · MI-02" icon={ICONS.longshot} status={status} onBack={onBack} onRefresh={load}>
+      {status==="pending" && !readings && <div className="muted">PULLING TELEMETRY…</div>}
+      {status==="down" && <SimBanner text="COULD NOT REACH ADAFRUIT IO — CHECK BASE NODE IS POWERED + ON WIFI" />}
+      {readings && <>
+        <div className="weather-hero">
+          <div className="temp-big">{readings.temp.toFixed(1)}°</div>
+          <div className="weather-hero-meta"><div className="condition">REMOTE NODE TEMP (C)</div><div className="muted">DATA {dataAge||"—"}</div></div>
+        </div>
+        <div className="stat-grid">
+          <div className="stat"><span className="stat-label">PRESSURE</span><span className="stat-val">{readings.pres.toFixed(1)} hPa</span></div>
+          <div className="stat"><span className="stat-label">RSSI</span><span className="stat-val">{readings.rssi.toFixed(0)} dBm</span></div>
+          <div className="stat"><span className="stat-label">LAT</span><span className="stat-val">{readings.lat.toFixed(4)}°</span></div>
+          <div className="stat"><span className="stat-label">LON</span><span className="stat-val">{readings.lon.toFixed(4)}°</span></div>
+        </div>
+        <div className="condition">{readings.lat===0 && readings.lon===0 ? "REMOTE NODE HAS NO GPS FIX" : `≈ ${distNm.toFixed(2)} NM FROM BASE`}</div>
+        <div className="timestamp" style={{marginTop:10}}>PANEL REFRESHED {updated}</div>
+      </>}
+    </AppShell>
+  );
+}
+
+// ---------- HABITS ----------
+function HabitApp({ onBack }) {
+  const [log, setLog] = useState({});
+  const [items, setItems] = useState(DEFAULT_HABIT_ITEMS);
+  const [loaded, setLoaded] = useState(false);
+  const today = todayKey();
+  useEffect(() => {
+    Promise.all([loadJSON("mios_habits", {}), loadJSON("mios_settings", {})]).then(([h, s]) => {
+      setLog(h);
+      setItems(s.habitItems && s.habitItems.length ? s.habitItems : DEFAULT_HABIT_ITEMS);
+      setLoaded(true);
+    });
+  }, []);
+  const toggle = (key) => {
+    const day = { ...(log[today]||{}) }; day[key] = !day[key];
+    const next = { ...log, [today]: day }; setLog(next); saveJSON("mios_habits", next);
+  };
+  let streak = 0;
+  { let d = new Date();
+    while (true) { const k = todayKey(d); const day = log[k];
+      const allDone = day && items.every(it=>day[it.key]);
+      if (!allDone) break; streak++; d.setDate(d.getDate()-1); } }
+  const todayLog = log[today]||{};
+  const doneCount = items.filter(it=>todayLog[it.key]).length;
+  return (
+    <AppShell title="HABIT TRACKER" icon={ICONS.habits} onBack={onBack}>
+      {!loaded ? <div className="muted">LOADING…</div> : <>
+        <div className="weather-hero">
+          <div className="temp-big" style={{fontSize:34}}>{streak}</div>
+          <div className="weather-hero-meta"><div className="condition">DAY STREAK</div><div className="muted">{doneCount}/{items.length} DONE TODAY</div></div>
+        </div>
+        <div className="habit-list">
+          {items.map(it => { const done = !!todayLog[it.key];
+            return <button key={it.key} className={`habit-row ${done?"habit-done":""}`} onClick={()=>toggle(it.key)}>
+              <span className={`habit-box ${done?"habit-box-done":""}`}>{done && ICONS.check}</span><span>{it.label}</span>
+            </button>; })}
+        </div>
+        <div className="muted small" style={{marginTop:10}}>Tap to check off. Edit the list in SETTINGS. Streak counts consecutive all-done days.</div>
+      </>}
+    </AppShell>
+  );
+}
+
+// ---------- PROJECTS ----------
+const DEFAULT_PROJECTS = [
+  { id:"p1", name:"3D Printer Rebuild", stage:"in-progress" },
+  { id:"p2", name:"ESP32 Custom Electronics", stage:"planning" },
+  { id:"p3", name:"MI-02 LONGSHOT", stage:"done" },
+];
+const STAGES = ["planning","in-progress","testing","done"];
+function ProjectApp({ onBack }) {
+  const [projects, setProjects] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [newName, setNewName] = useState("");
+  useEffect(() => { loadJSON("mios_projects", DEFAULT_PROJECTS).then(v=>{setProjects(v);setLoaded(true);}); }, []);
+  const persist = (next) => { setProjects(next); saveJSON("mios_projects", next); };
+  const cycleStage = (id) => persist(projects.map(p => p.id!==id ? p : {...p, stage: STAGES[(STAGES.indexOf(p.stage)+1)%STAGES.length]}));
+  const addProject = () => { const name = newName.trim(); if (!name) return; persist([...projects, {id:"p"+Date.now(), name, stage:"planning"}]); setNewName(""); };
+  const removeProject = (id) => persist(projects.filter(p=>p.id!==id));
+  return (
+    <AppShell title="PROJECT LOG" icon={ICONS.projects} onBack={onBack}>
+      {!loaded ? <div className="muted">LOADING…</div> : <>
+        <div className="add-row">
+          <input className="text-input" placeholder="NEW PROJECT NAME" value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addProject()} />
+          <button className="icon-btn add-btn" onClick={addProject}>{ICONS.plus}</button>
+        </div>
+        <div className="project-list">
+          {projects.map(p => (
+            <div className="project-item" key={p.id}>
+              <div className="project-item-top"><span className="project-name">{p.name}</span><button className="icon-btn" onClick={()=>removeProject(p.id)}>{ICONS.trash}</button></div>
+              <button className={`stage-pill stage-${p.stage}`} onClick={()=>cycleStage(p.id)}>{p.stage.toUpperCase().replace("-"," ")}</button>
+            </div>
+          ))}
+        </div>
+        <div className="muted small" style={{marginTop:10}}>Tap the stage pill to advance it.</div>
+      </>}
+    </AppShell>
+  );
+}
+
+// ---------- NOTES ----------
+function NotesApp({ onBack }) {
+  const [notes, setNotes] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [draft, setDraft] = useState("");
+  useEffect(() => { loadJSON("mios_notes", []).then(v=>{setNotes(v);setLoaded(true);}); }, []);
+  const persist = (next) => { setNotes(next); saveJSON("mios_notes", next); };
+  const addNote = () => { const text = draft.trim(); if (!text) return; persist([{id:"n"+Date.now(), text, ts:new Date().toISOString()}, ...notes]); setDraft(""); };
+  const removeNote = (id) => persist(notes.filter(n=>n.id!==id));
+  return (
+    <AppShell title="ENGINEERING NOTES" icon={ICONS.notes} onBack={onBack}>
+      {!loaded ? <div className="muted">LOADING…</div> : <>
+        <textarea className="text-area" placeholder="LOG AN IDEA, MEASUREMENT, FIX…" value={draft} onChange={e=>setDraft(e.target.value)} />
+        <button className="full-btn" onClick={addNote}>ADD ENTRY</button>
+        <div className="note-list">
+          {notes.length===0 && <div className="muted" style={{marginTop:10}}>NO ENTRIES YET</div>}
+          {notes.map(n => (
+            <div className="note-item" key={n.id}>
+              <div className="note-text">{n.text}</div>
+              <div className="note-foot"><span className="muted small">{new Date(n.ts).toLocaleString("en-US",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</span><button className="icon-btn" onClick={()=>removeNote(n.id)}>{ICONS.trash}</button></div>
+            </div>
+          ))}
+        </div>
+      </>}
+    </AppShell>
+  );
+}
+
+// ---------- UNIT CONVERTER ----------
+const UNIT_GROUPS = { Length:{m:1,ft:0.3048,in:0.0254,mm:0.001,cm:0.01,km:1000,mi:1609.34}, Torque:{"N·m":1,"lb·ft":1.35582,"lb·in":0.112985}, Pressure:{Pa:1,kPa:1000,psi:6894.76,bar:100000,atm:101325}, Temperature:null };
+function convertTemp(val, from, to) {
+  let c = from==="C" ? val : from==="F" ? (val-32)*(5/9) : val-273.15;
+  return to==="C" ? c : to==="F" ? c*(9/5)+32 : c+273.15;
+}
+function UnitApp({ onBack }) {
+  const [group, setGroup] = useState("Length");
+  const units = group==="Temperature" ? ["C","F","K"] : Object.keys(UNIT_GROUPS[group]);
+  const [from, setFrom] = useState(units[0]);
+  const [to, setTo] = useState(units[1]||units[0]);
+  const [val, setVal] = useState("1");
+  useEffect(() => { const u = group==="Temperature"?["C","F","K"]:Object.keys(UNIT_GROUPS[group]); setFrom(u[0]); setTo(u[1]||u[0]); }, [group]);
+  const num = parseFloat(val);
+  let result = null;
+  if (!isNaN(num)) { result = group==="Temperature" ? convertTemp(num,from,to) : (num*UNIT_GROUPS[group][from])/UNIT_GROUPS[group][to]; }
+  return (
+    <AppShell title="UNIT CONVERTER" icon={ICONS.units} onBack={onBack}>
+      <div className="pill-row">{Object.keys(UNIT_GROUPS).map(g => <button key={g} className={`pill ${g===group?"pill-active":""}`} onClick={()=>setGroup(g)}>{g.toUpperCase()}</button>)}</div>
+      <input className="text-input" style={{marginTop:12}} type="number" value={val} onChange={e=>setVal(e.target.value)} />
+      <div className="convert-row">
+        <select className="select-input" value={from} onChange={e=>setFrom(e.target.value)}>{units.map(u=><option key={u} value={u}>{u}</option>)}</select>
+        <span className="muted">→</span>
+        <select className="select-input" value={to} onChange={e=>setTo(e.target.value)}>{units.map(u=><option key={u} value={u}>{u}</option>)}</select>
+      </div>
+      <div className="convert-result">{result!=null?result.toFixed(4):"—"} <span className="muted small">{to}</span></div>
+    </AppShell>
+  );
+}
+
+// ---------- COUNTDOWN ----------
+function CountdownApp({ onBack }) {
+  const [target, setTarget] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const [label, setLabel] = useState("");
+  const [date, setDate] = useState("");
+  const now = useClock();
+  useEffect(() => { loadJSON("mios_countdown", null).then(v => { setTarget(v); if (v) { setLabel(v.label); setDate(v.date); } setLoaded(true); }); }, []);
+  const save = () => { if (!label.trim() || !date) return; const t = {label:label.trim(), date}; setTarget(t); saveJSON("mios_countdown", t); };
+  let remain = null;
+  if (target) { const diffMs = new Date(target.date+"T00:00:00") - now; remain = Math.max(0, diffMs); }
+  const days = remain!=null ? Math.floor(remain/86400000) : null;
+  const hours = remain!=null ? Math.floor((remain%86400000)/3600000) : null;
+  return (
+    <AppShell title="MISSION COUNTDOWN" icon={ICONS.countdown} onBack={onBack}>
+      {!loaded ? <div className="muted">LOADING…</div> : <>
+        {target && <div className="weather-hero" style={{marginBottom:16}}>
+          <div className="temp-big" style={{fontSize:40}}>{days}</div>
+          <div className="weather-hero-meta"><div className="condition">DAYS · {hours}H</div><div className="muted">{target.label.toUpperCase()}</div></div>
+        </div>}
+        <div className="muted small" style={{marginBottom:4}}>LABEL</div>
+        <input className="text-input" value={label} onChange={e=>setLabel(e.target.value)} placeholder="e.g. FINALS WEEK" />
+        <div className="muted small" style={{margin:"10px 0 4px"}}>TARGET DATE</div>
+        <input className="text-input" type="date" value={date} onChange={e=>setDate(e.target.value)} />
+        <button className="full-btn" onClick={save}>SET TARGET</button>
+      </>}
+    </AppShell>
+  );
+}
+
+// ---------- COURSEWORK ----------
+function daysUntil(dateStr) {
+  const target = new Date(dateStr + "T00:00:00");
+  const now = new Date();
+  now.setHours(0,0,0,0);
+  return Math.round((target - now) / 86400000);
+}
+function CourseworkApp({ onBack }) {
+  const [items, setItems] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [cls, setCls] = useState("");
+  const [title, setTitle] = useState("");
+  const [due, setDue] = useState("");
+
+  useEffect(() => { loadJSON("mios_coursework", []).then(v => { setItems(v); setLoaded(true); }); }, []);
+  const persist = (next) => { setItems(next); saveJSON("mios_coursework", next); };
+
+  const addItem = () => {
+    if (!cls.trim() || !title.trim() || !due) return;
+    persist([...items, { id: "c"+Date.now(), cls: cls.trim().toUpperCase(), title: title.trim(), due, done: false }]);
+    setTitle(""); setDue("");
+  };
+  const toggleDone = (id) => persist(items.map(i => i.id===id ? {...i, done: !i.done} : i));
+  const removeItem = (id) => persist(items.filter(i => i.id!==id));
+
+  const sorted = [...items].sort((a,b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    return new Date(a.due) - new Date(b.due);
+  });
+
+  return (
+    <AppShell title="COURSEWORK" icon={ICONS.coursework} onBack={onBack}>
+      {!loaded ? <div className="muted">LOADING…</div> : <>
+        <div className="text-input" style={{marginBottom:6, display:"flex", gap:6, padding:0, border:"none", background:"none"}}>
+          <input className="text-input" placeholder="CLASS (e.g. MATH 1010)" value={cls} onChange={e=>setCls(e.target.value)} style={{flex:1}} />
+        </div>
+        <div style={{display:"flex", gap:6, marginBottom:6}}>
+          <input className="text-input" placeholder="ASSIGNMENT / EXAM" value={title} onChange={e=>setTitle(e.target.value)} />
+        </div>
+        <div className="add-row">
+          <input className="text-input" type="date" value={due} onChange={e=>setDue(e.target.value)} />
+          <button className="icon-btn add-btn" onClick={addItem}>{ICONS.plus}</button>
+        </div>
+        <div className="project-list">
+          {sorted.length===0 && <div className="muted">NOTHING TRACKED YET</div>}
+          {sorted.map(i => {
+            const d = daysUntil(i.due);
+            let badgeClass = "stage-planning";
+            let badgeText = i.done ? "DONE" : d < 0 ? "OVERDUE" : d===0 ? "DUE TODAY" : `${d}D LEFT`;
+            if (!i.done) {
+              if (d < 0) badgeClass = "stage-testing";
+              else if (d <= 2) badgeClass = "stage-testing";
+              else if (d <= 7) badgeClass = "stage-in-progress";
+              else badgeClass = "stage-planning";
+            } else {
+              badgeClass = "stage-done";
+            }
+            return (
+              <div className="project-item" key={i.id} style={{opacity: i.done ? 0.55 : 1}}>
+                <div className="project-item-top">
+                  <span className="project-name">{i.cls} — {i.title}</span>
+                  <button className="icon-btn" onClick={()=>removeItem(i.id)}>{ICONS.trash}</button>
+                </div>
+                <div style={{display:"flex", gap:8, alignItems:"center"}}>
+                  <button className={`stage-pill ${badgeClass}`} onClick={()=>toggleDone(i.id)}>{badgeText}</button>
+                  <span className="muted small">{new Date(i.due+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="muted small" style={{marginTop:10}}>Tap the badge to mark done/undone.</div>
+      </>}
+    </AppShell>
+  );
+}
+
+// ---------- SETTINGS ----------
+function slugify(s) {
+  return s.trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"") || ("h"+Date.now());
+}
+function SettingsApp({ onBack }) {
+  const [loaded, setLoaded] = useState(false);
+  const [aioUsername, setAioUsername] = useState("");
+  const [aioKey, setAioKey] = useState("");
+  const [habitItems, setHabitItems] = useState(DEFAULT_HABIT_ITEMS);
+  const [newHabit, setNewHabit] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    loadJSON("mios_settings", {}).then(s => {
+      setAioUsername(s.aioUsername || DEFAULT_AIO_USERNAME);
+      setAioKey(s.aioKey || DEFAULT_AIO_KEY);
+      setHabitItems(s.habitItems && s.habitItems.length ? s.habitItems : DEFAULT_HABIT_ITEMS);
+      setLoaded(true);
+    });
+  }, []);
+
+  const save = async () => {
+    await saveJSON("mios_settings", { aioUsername, aioKey, habitItems });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const renameHabit = (key, label) => setHabitItems(habitItems.map(it => it.key===key ? {...it, label} : it));
+  const removeHabit = (key) => setHabitItems(habitItems.filter(it => it.key!==key));
+  const addHabit = () => {
+    const label = newHabit.trim().toUpperCase();
+    if (!label) return;
+    setHabitItems([...habitItems, { key: slugify(label)+"-"+Date.now().toString(36), label }]);
+    setNewHabit("");
+  };
+
+  return (
+    <AppShell title="SETTINGS" icon={ICONS.settings} onBack={onBack}>
+      {!loaded ? <div className="muted">LOADING…</div> : <>
+        <div className="eyebrow" style={{fontSize:10, marginBottom:6}}>LONGSHOT / ADAFRUIT IO</div>
+        <div className="muted small" style={{marginBottom:4}}>USERNAME</div>
+        <input className="text-input" value={aioUsername} onChange={e=>setAioUsername(e.target.value)} />
+        <div className="muted small" style={{margin:"8px 0 4px"}}>AIO KEY</div>
+        <input className="text-input" value={aioKey} onChange={e=>setAioKey(e.target.value)} />
+
+        <div className="eyebrow" style={{fontSize:10, margin:"18px 0 8px"}}>HABIT TRACKER ITEMS</div>
+        <div className="project-list" style={{marginBottom:8}}>
+          {habitItems.map(it => (
+            <div className="project-item" key={it.key} style={{display:"flex", alignItems:"center", gap:8, flexDirection:"row"}}>
+              <input className="text-input" style={{flex:1}} value={it.label} onChange={e=>renameHabit(it.key, e.target.value.toUpperCase())} />
+              <button className="icon-btn" onClick={()=>removeHabit(it.key)}>{ICONS.trash}</button>
+            </div>
+          ))}
+        </div>
+        <div className="add-row">
+          <input className="text-input" placeholder="NEW HABIT" value={newHabit} onChange={e=>setNewHabit(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addHabit()} />
+          <button className="icon-btn add-btn" onClick={addHabit}>{ICONS.plus}</button>
+        </div>
+
+        <button className="full-btn" onClick={save} style={{marginTop:18}}>{saved ? "SAVED ✓" : "SAVE SETTINGS"}</button>
+        <div className="muted small" style={{marginTop:10}}>Longshot changes apply next time you open it. Habit changes apply next time you open Habit Tracker.</div>
+      </>}
+    </AppShell>
+  );
+}
+
+// ---------- BACKUP ----------
+const BACKUP_KEYS = ["mios_habits", "mios_projects", "mios_notes", "mios_countdown", "mios_coursework", "mios_settings"];
+function BackupApp({ onBack }) {
+  const [msg, setMsg] = useState("");
+  const fileInputRef = useRef(null);
+
+  const exportData = () => {
+    const dump = {};
+    BACKUP_KEYS.forEach(k => {
+      const v = localStorage.getItem(k);
+      if (v != null) dump[k] = JSON.parse(v);
+    });
+    const blob = new Blob([JSON.stringify(dump, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `mios-backup-${todayKey()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setMsg("Exported.");
+  };
+
+  const importData = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        BACKUP_KEYS.forEach(k => {
+          if (parsed[k] !== undefined) localStorage.setItem(k, JSON.stringify(parsed[k]));
+        });
+        setMsg("Imported. Reloading…");
+        setTimeout(() => window.location.reload(), 900);
+      } catch (err) {
+        setMsg("Import failed — file wasn't valid MIOS backup JSON.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const clearAll = () => {
+    if (!window.confirm("This wipes all local MIOS data on this device — habits, projects, notes, coursework, settings. Export a backup first if you want to keep it. Continue?")) return;
+    BACKUP_KEYS.forEach(k => localStorage.removeItem(k));
+    setMsg("Cleared. Reloading…");
+    setTimeout(() => window.location.reload(), 900);
+  };
+
+  return (
+    <AppShell title="SYSTEM BACKUP" icon={ICONS.backup} onBack={onBack}>
+      <div className="muted" style={{lineHeight:1.6, marginBottom:14}}>
+        Habits, projects, notes, coursework, and settings all live only in this browser's local storage. Clearing site data or switching browsers/devices loses it — export a backup now and then, especially before doing anything drastic.
+      </div>
+      <button className="full-btn" onClick={exportData}>EXPORT BACKUP (.json)</button>
+      <button className="full-btn" onClick={()=>fileInputRef.current.click()} style={{marginTop:8}}>IMPORT BACKUP</button>
+      <input ref={fileInputRef} type="file" accept="application/json" style={{display:"none"}} onChange={importData} />
+      <button className="full-btn" onClick={clearAll} style={{marginTop:8, borderColor:"var(--red-alert)", color:"var(--red-alert)"}}>CLEAR ALL LOCAL DATA</button>
+      {msg && <div className="nominal" style={{marginTop:12}}>{msg}</div>}
+    </AppShell>
+  );
+}
+
+// ---------- DAILY BRIEF ----------
+function useDailyBrief(refreshKey) {
+  const [brief, setBrief] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      const [habitsLog, settings, coursework, countdown] = await Promise.all([
+        loadJSON("mios_habits", {}),
+        loadJSON("mios_settings", {}),
+        loadJSON("mios_coursework", []),
+        loadJSON("mios_countdown", null),
+      ]);
+      const items = settings.habitItems && settings.habitItems.length ? settings.habitItems : DEFAULT_HABIT_ITEMS;
+      const today = todayKey();
+      const todayLog = habitsLog[today] || {};
+      const doneCount = items.filter(it => todayLog[it.key]).length;
+
+      const upcoming = (coursework || []).filter(i => !i.done).sort((a,b) => new Date(a.due) - new Date(b.due))[0];
+
+      let weatherStr = null;
+      try {
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,weather_code&temperature_unit=fahrenheit&timezone=America%2FDenver`;
+        const w = await fetchWithRetry(url, {}, 1, 5000);
+        weatherStr = `${Math.round(w.current.temperature_2m)}° ${(WMO[w.current.weather_code]||"").toLowerCase()}`;
+      } catch (e) {}
+
+      if (cancelled) return;
+      setBrief({
+        weatherStr,
+        habitsStr: `${doneCount}/${items.length} habits done`,
+        courseworkStr: upcoming ? `${upcoming.cls} due ${daysUntil(upcoming.due)<=0 ? "today" : daysUntil(upcoming.due)+"d"}` : null,
+        countdownStr: countdown ? `${countdown.label} in ${Math.max(0, Math.ceil((new Date(countdown.date+"T00:00:00") - new Date())/86400000))}d` : null,
+      });
+    }
+    run();
+    return () => { cancelled = true; };
+  }, [refreshKey]);
+  return brief;
+}
+
+// ---------- COMMAND PALETTE ----------
+function CommandPalette({ open, onClose, onNavigate }) {
+  const [query, setQuery] = useState("");
+  const [listening, setListening] = useState(false);
+  const [notes, setNotes] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [coursework, setCoursework] = useState([]);
+  const [habitItems, setHabitItems] = useState(DEFAULT_HABIT_ITEMS);
+  const [flash, setFlash] = useState("");
+  const inputRef = useRef(null);
+  const recognitionRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setQuery(""); setFlash("");
+    Promise.all([
+      loadJSON("mios_notes", []),
+      loadJSON("mios_projects", []),
+      loadJSON("mios_coursework", []),
+      loadJSON("mios_settings", {}),
+    ]).then(([n, p, c, s]) => {
+      setNotes(n); setProjects(p); setCoursework(c);
+      setHabitItems(s.habitItems && s.habitItems.length ? s.habitItems : DEFAULT_HABIT_ITEMS);
+    });
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }, [open]);
+
+  const SpeechRecognitionClass = typeof window !== "undefined" ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
+
+  const startVoice = () => {
+    if (!SpeechRecognitionClass) return;
+    const rec = new SpeechRecognitionClass();
+    rec.lang = "en-US";
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    rec.onresult = (e) => {
+      const text = e.results[0][0].transcript;
+      setQuery(text);
+      setListening(false);
+    };
+    rec.onerror = () => setListening(false);
+    rec.onend = () => setListening(false);
+    recognitionRef.current = rec;
+    setListening(true);
+    rec.start();
+  };
+
+  const runQuickAction = async (q) => {
+    const lower = q.toLowerCase().trim();
+    if (lower.startsWith("note:")) {
+      const text = q.slice(q.indexOf(":")+1).trim();
+      if (!text) return false;
+      const existing = await loadJSON("mios_notes", []);
+      await saveJSON("mios_notes", [{ id:"n"+Date.now(), text, ts:new Date().toISOString() }, ...existing]);
+      setFlash("Note added.");
+      return true;
+    }
+    if (lower.startsWith("habit:")) {
+      const term = lower.slice(6).trim();
+      const match = habitItems.find(it => it.label.toLowerCase().includes(term));
+      if (!match) { setFlash("No matching habit."); return true; }
+      const log = await loadJSON("mios_habits", {});
+      const today = todayKey();
+      const day = { ...(log[today]||{}) };
+      day[match.key] = !day[match.key];
+      await saveJSON("mios_habits", { ...log, [today]: day });
+      setFlash(`${match.label} ${day[match.key] ? "checked" : "unchecked"}.`);
+      return true;
+    }
+    return false;
+  };
+
+  const results = React.useMemo(() => {
+    const q = query.toLowerCase().trim();
+    if (!q) return APPS.map(a => ({ type:"app", id:a.id, label:a.label }));
+    if (q.startsWith("note:") || q.startsWith("habit:")) {
+      return [{ type:"action", label: `Run: ${query}` }];
+    }
+    const out = [];
+    APPS.forEach(a => { if (a.label.toLowerCase().includes(q)) out.push({ type:"app", id:a.id, label:a.label }); });
+    notes.forEach(n => { if (n.text.toLowerCase().includes(q)) out.push({ type:"nav", id:"notes", label: n.text.slice(0,60), tag:"NOTE" }); });
+    projects.forEach(p => { if (p.name.toLowerCase().includes(q)) out.push({ type:"nav", id:"projects", label: p.name, tag:"PROJECT" }); });
+    coursework.forEach(c => { if ((c.cls+" "+c.title).toLowerCase().includes(q)) out.push({ type:"nav", id:"coursework", label: `${c.cls} — ${c.title}`, tag:"COURSEWORK" }); });
+    return out.slice(0, 12);
+  }, [query, notes, projects, coursework]);
+
+  const selectResult = async (r) => {
+    if (r.type === "action") {
+      const handled = await runQuickAction(query);
+      if (handled) { setTimeout(onClose, 700); return; }
+    }
+    if (r.type === "app" || r.type === "nav") {
+      onNavigate(r.id);
+      onClose();
+    }
+  };
+
+  if (!open) return null;
+  return (
+    <div className="palette-overlay" onClick={onClose}>
+      <div className="palette-box" onClick={e=>e.stopPropagation()}>
+        <div className="palette-input-row">
+          <span style={{color:"var(--amber)"}}>{ICONS.longshot}</span>
+          <input
+            ref={inputRef}
+            className="palette-input"
+            placeholder='Search, or try "note: ..." / "habit: gym"'
+            value={query}
+            onChange={e=>setQuery(e.target.value)}
+            onKeyDown={e => { if (e.key==="Enter" && results[0]) selectResult(results[0]); if (e.key==="Escape") onClose(); }}
+          />
+          {SpeechRecognitionClass && (
+            <button className={`palette-mic ${listening?"listening":""}`} onClick={startVoice}>{listening ? "●" : "🎤"}</button>
+          )}
+          <button className="palette-close" onClick={onClose}>✕</button>
+        </div>
+        {flash && <div className="nominal" style={{marginTop:8}}>{flash}</div>}
+        <div className="palette-results">
+          {results.map((r, i) => (
+            <div className="palette-result" key={i} onClick={()=>selectResult(r)}>
+              <span className="palette-result-label">{r.label}</span>
+              {r.tag && <span className="palette-result-tag">{r.tag}</span>}
+            </div>
+          ))}
+          {results.length===0 && <div className="muted">No matches.</div>}
+        </div>
+        <div className="palette-hint">
+          Type to jump anywhere or search notes/projects/coursework. "note: idea text" adds a note instantly. "habit: gym" toggles today. {SpeechRecognitionClass ? "Tap the mic to speak instead." : "Voice input isn't supported in this browser (Safari/iOS doesn't support it — works in Chrome)."}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- HOME ----------
+const APPS = [
+  { id:"weather", label:"WEATHER", icon:ICONS.weather, accent:"var(--cyan)" },
+  { id:"storm", label:"STORM ALERTS", icon:ICONS.storm, accent:"var(--amber)" },
+  { id:"flights", label:"FLIGHT TRACKER", icon:ICONS.flights, accent:"var(--cyan)" },
+  { id:"iss", label:"ISS TRACKER", icon:ICONS.iss, accent:"var(--cyan)" },
+  { id:"longshot", label:"LONGSHOT · MI-02", icon:ICONS.longshot, accent:"var(--green-ok)" },
+  { id:"habits", label:"HABIT TRACKER", icon:ICONS.habits, accent:"var(--green-ok)" },
+  { id:"projects", label:"PROJECT LOG", icon:ICONS.projects, accent:"var(--amber)" },
+  { id:"notes", label:"ENGINEERING NOTES", icon:ICONS.notes, accent:"var(--green-ok)" },
+  { id:"units", label:"UNIT CONVERTER", icon:ICONS.units, accent:"var(--cyan)" },
+  { id:"countdown", label:"MISSION COUNTDOWN", icon:ICONS.countdown, accent:"var(--amber)" },
+  { id:"coursework", label:"COURSEWORK", icon:ICONS.coursework, accent:"var(--cyan)" },
+  { id:"settings", label:"SETTINGS", icon:ICONS.settings, accent:"var(--text-dim)" },
+  { id:"backup", label:"SYSTEM BACKUP", icon:ICONS.backup, accent:"var(--text-dim)" },
+];
+const LIVE_APP_IDS = ["weather","storm","flights","iss","longshot"];
+
+function MIOS() {
+  const [screen, setScreen] = useState("home");
+  const [moduleStatus, setModuleStatus] = useState({});
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const now = useClock();
+  const brief = useDailyBrief(screen);
+  const setStatusFor = (id) => (s) => setModuleStatus(prev => ({...prev, [id]: s}));
+  const localTime = now.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",hour12:false});
+  const dateStr = now.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+  const liveCount = LIVE_APP_IDS.filter(id => moduleStatus[id]==="ok").length;
+  const goBack = () => setScreen("home");
+  const renderApp = () => {
+    switch (screen) {
+      case "weather": return <WeatherApp onBack={goBack} onStatus={setStatusFor("weather")} />;
+      case "storm": return <StormApp onBack={goBack} onStatus={setStatusFor("storm")} />;
+      case "flights": return <FlightApp onBack={goBack} onStatus={setStatusFor("flights")} />;
+      case "iss": return <IssApp onBack={goBack} onStatus={setStatusFor("iss")} />;
+      case "longshot": return <LongshotApp onBack={goBack} onStatus={setStatusFor("longshot")} />;
+      case "habits": return <HabitApp onBack={goBack} />;
+      case "projects": return <ProjectApp onBack={goBack} />;
+      case "notes": return <NotesApp onBack={goBack} />;
+      case "units": return <UnitApp onBack={goBack} />;
+      case "countdown": return <CountdownApp onBack={goBack} />;
+      case "coursework": return <CourseworkApp onBack={goBack} />;
+      case "settings": return <SettingsApp onBack={goBack} />;
+      case "backup": return <BackupApp onBack={goBack} />;
+      default: return null;
+    }
+  };
+  return (
+    <>
+    {screen==="home" ? (
+    <>
+      <div className="status-bar">
+        <div className="status-bar-top">
+          <div className="callsign">Marcus Industries <small>// MIOS</small></div>
+          <div className="clock-block"><div className="big-time">{localTime}</div><div>{dateStr}</div></div>
+        </div>
+        <div className="status-bar-sub">
+          <span>SITE: <b>CEDAR CITY, UT</b></span>
+          <span>ELEV: <b>{ELEV_FT.toLocaleString()} FT</b></span>
+          <span>LIVE FEEDS: <b>{liveCount}/{LIVE_APP_IDS.length}</b></span>
+        </div>
+      </div>
+      {brief && (
+        <div className="brief-line">
+          {[brief.weatherStr, brief.habitsStr, brief.courseworkStr, brief.countdownStr].filter(Boolean).map((s,i,arr) => (
+            <React.Fragment key={i}>{s}{i<arr.length-1 && <span className="sep">·</span>}</React.Fragment>
+          ))}
+        </div>
+      )}
+      <div className="app-grid">
+        {APPS.map(a => (
+          <button key={a.id} className="app-icon-btn" onClick={()=>setScreen(a.id)}>
+            {LIVE_APP_IDS.includes(a.id) && <span className="app-icon-led"><StatusLED status={moduleStatus[a.id]||"pending"} /></span>}
+            <span className="app-icon-glyph" style={{color:a.accent}}>{a.icon}</span>
+            <span className="app-icon-label">{a.label}</span>
+          </button>
+        ))}
+      </div>
+      <div className="footer">MIOS v0.4 — CEDAR CITY NODE — STANDALONE BUILD</div>
+    </>
+  ) : renderApp()}
+    <button className="fab" onClick={()=>setPaletteOpen(true)}>{ICONS.longshot}</button>
+    <CommandPalette open={paletteOpen} onClose={()=>setPaletteOpen(false)} onNavigate={setScreen} />
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<MIOS />);
+</script>
+<script>
+(function () {
+  var code = document.getElementById('app-source').textContent;
+  var output = Babel.transform(code, { presets: [["react", { runtime: "classic" }]] }).code;
+  var s = document.createElement('script');
+  s.textContent = output;
+  document.body.appendChild(s);
+})();
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("service-worker.js").catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
