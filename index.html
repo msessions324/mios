@@ -173,7 +173,7 @@ const WMO = {
 const ICONS = {
   weather: "☁", storm: "⚠", flights: "✈", iss: "◎", longshot: "▲",
   habits: "☑", projects: "⚙", notes: "✎", units: "▭", countdown: "◷",
-  coursework: "🎓", settings: "🛠", backup: "💾",
+  coursework: "🎓", settings: "🛠", backup: "💾", budget: "💰",
   back: "←", refresh: "↻", plus: "+", trash: "✕", check: "✓",
 };
 
@@ -423,8 +423,33 @@ function IssApp({ onBack, onStatus }) {
 }
 
 // ---------- LONGSHOT ----------
+function Sparkline({ data, color }) {
+  if (!data || data.length < 2) return <div className="muted small">Building history…</div>;
+  const w = 280, h = 46, pad = 4;
+  const min = Math.min(...data), max = Math.max(...data);
+  const range = (max - min) || 1;
+  const points = data.map((v,i) => {
+    const x = pad + (i/(data.length-1))*(w-pad*2);
+    const y = h - pad - ((v-min)/range)*(h-pad*2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  return (
+    <div>
+      <svg viewBox={`0 0 ${w} ${h}`} style={{width:"100%", height:46, display:"block"}}>
+        <polyline points={points} fill="none" stroke={color} strokeWidth="2" />
+      </svg>
+      <div style={{display:"flex", justifyContent:"space-between"}}>
+        <span className="muted small">{min.toFixed(1)}</span>
+        <span className="muted small">{max.toFixed(1)}</span>
+      </div>
+    </div>
+  );
+}
+
 function LongshotApp({ onBack, onStatus }) {
   const [readings, setReadings] = useState(null);
+  const [tempHistory, setTempHistory] = useState(null);
+  const [presHistory, setPresHistory] = useState(null);
   const [status, setStatus] = useState("pending");
   const [updated, setUpdated] = useState("");
   const [dataAge, setDataAge] = useState("");
@@ -441,6 +466,15 @@ function LongshotApp({ onBack, onStatus }) {
       setReadings({ temp: parseFloat(temp.value), pres: parseFloat(pres.value), lat: parseFloat(lat.value),
         lon: parseFloat(lon.value), rssi: parseFloat(rssi.value), createdAt: temp.created_at });
       setStatus("ok");
+
+      try {
+        const [tempH, presH] = await Promise.all([
+          fetchWithRetry(`https://io.adafruit.com/api/v2/${user}/feeds/longshot-temp/data?limit=20&x-aio-key=${key}`, {}, 1, 6000),
+          fetchWithRetry(`https://io.adafruit.com/api/v2/${user}/feeds/longshot-pressure/data?limit=20&x-aio-key=${key}`, {}, 1, 6000),
+        ]);
+        setTempHistory(tempH.map(d=>parseFloat(d.value)).reverse());
+        setPresHistory(presH.map(d=>parseFloat(d.value)).reverse());
+      } catch (e) { /* history is a bonus — main readings already succeeded, don't fail the whole panel */ }
     } catch (e) { setStatus("down"); }
     setUpdated(new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}));
   }, []);
@@ -473,6 +507,13 @@ function LongshotApp({ onBack, onStatus }) {
           <div className="stat"><span className="stat-label">LON</span><span className="stat-val">{readings.lon.toFixed(4)}°</span></div>
         </div>
         <div className="condition">{readings.lat===0 && readings.lon===0 ? "REMOTE NODE HAS NO GPS FIX" : `≈ ${distNm.toFixed(2)} NM FROM BASE`}</div>
+
+        <div className="eyebrow" style={{fontSize:10, margin:"16px 0 6px"}}>TEMP — LAST {tempHistory?.length || 0} READINGS (°C)</div>
+        <Sparkline data={tempHistory} color="var(--cyan)" />
+
+        <div className="eyebrow" style={{fontSize:10, margin:"16px 0 6px"}}>PRESSURE — LAST {presHistory?.length || 0} READINGS (hPa)</div>
+        <Sparkline data={presHistory} color="var(--amber)" />
+
         <div className="timestamp" style={{marginTop:10}}>PANEL REFRESHED {updated}</div>
       </>}
     </AppShell>
@@ -654,42 +695,112 @@ function daysUntil(dateStr) {
   now.setHours(0,0,0,0);
   return Math.round((target - now) / 86400000);
 }
+function classSummary(items, target) {
+  const graded = items.filter(i => i.points != null && i.score != null);
+  const ungraded = items.filter(i => i.points != null && i.score == null);
+  const totalScored = graded.reduce((s,i)=>s+i.score, 0);
+  const totalPossibleGraded = graded.reduce((s,i)=>s+i.points, 0);
+  const totalPossibleUngraded = ungraded.reduce((s,i)=>s+i.points, 0);
+  const currentPct = totalPossibleGraded > 0 ? (totalScored/totalPossibleGraded*100) : null;
+  let neededPct = null;
+  if (target != null && totalPossibleUngraded > 0) {
+    const totalPoints = totalPossibleGraded + totalPossibleUngraded;
+    const neededPoints = (target/100)*totalPoints - totalScored;
+    neededPct = (neededPoints/totalPossibleUngraded)*100;
+  }
+  return { currentPct, neededPct, hasUngraded: totalPossibleUngraded > 0, hasGraded: totalPossibleGraded > 0 };
+}
 function CourseworkApp({ onBack }) {
   const [items, setItems] = useState([]);
+  const [targets, setTargets] = useState({});
   const [loaded, setLoaded] = useState(false);
   const [cls, setCls] = useState("");
   const [title, setTitle] = useState("");
   const [due, setDue] = useState("");
+  const [points, setPoints] = useState("");
 
-  useEffect(() => { loadJSON("mios_coursework", []).then(v => { setItems(v); setLoaded(true); }); }, []);
+  useEffect(() => {
+    Promise.all([loadJSON("mios_coursework", []), loadJSON("mios_class_targets", {})]).then(([i,t]) => {
+      setItems(i); setTargets(t); setLoaded(true);
+    });
+  }, []);
   const persist = (next) => { setItems(next); saveJSON("mios_coursework", next); };
+  const persistTargets = (next) => { setTargets(next); saveJSON("mios_class_targets", next); };
 
   const addItem = () => {
     if (!cls.trim() || !title.trim() || !due) return;
-    persist([...items, { id: "c"+Date.now(), cls: cls.trim().toUpperCase(), title: title.trim(), due, done: false }]);
-    setTitle(""); setDue("");
+    const pts = points.trim() === "" ? null : parseFloat(points);
+    persist([...items, { id: "c"+Date.now(), cls: cls.trim().toUpperCase(), title: title.trim(), due, done: false, points: (pts!=null && !isNaN(pts)) ? pts : null, score: null }]);
+    setTitle(""); setDue(""); setPoints("");
   };
   const toggleDone = (id) => persist(items.map(i => i.id===id ? {...i, done: !i.done} : i));
   const removeItem = (id) => persist(items.filter(i => i.id!==id));
+  const setScore = (id, val) => {
+    const num = val.trim()==="" ? null : parseFloat(val);
+    persist(items.map(i => i.id===id ? {...i, score: (num!=null && !isNaN(num)) ? num : null} : i));
+  };
+  const setTarget = (clsName, val) => {
+    const num = val.trim()==="" ? null : parseFloat(val);
+    persistTargets({ ...targets, [clsName]: (num!=null && !isNaN(num)) ? num : null });
+  };
 
   const sorted = [...items].sort((a,b) => {
     if (a.done !== b.done) return a.done ? 1 : -1;
     return new Date(a.due) - new Date(b.due);
   });
 
+  const classNames = [...new Set(items.map(i=>i.cls))];
+
   return (
     <AppShell title="COURSEWORK" icon={ICONS.coursework} onBack={onBack}>
       {!loaded ? <div className="muted">LOADING…</div> : <>
-        <div className="text-input" style={{marginBottom:6, display:"flex", gap:6, padding:0, border:"none", background:"none"}}>
-          <input className="text-input" placeholder="CLASS (e.g. MATH 1010)" value={cls} onChange={e=>setCls(e.target.value)} style={{flex:1}} />
+        {classNames.length > 0 && (
+          <div className="project-list" style={{marginBottom:14}}>
+            {classNames.map(clsName => {
+              const clsItems = items.filter(i=>i.cls===clsName);
+              const target = targets[clsName];
+              const s = classSummary(clsItems, target);
+              return (
+                <div className="project-item" key={clsName}>
+                  <div className="project-item-top">
+                    <span className="project-name">{clsName}</span>
+                    <span className="mono-strong">{s.currentPct!=null ? s.currentPct.toFixed(1)+"%" : "—"}</span>
+                  </div>
+                  <div style={{display:"flex", gap:8, alignItems:"center", marginBottom: s.hasUngraded ? 6 : 0}}>
+                    <span className="muted small">TARGET</span>
+                    <input className="text-input" type="number" style={{width:70, padding:"5px 8px"}} value={target ?? ""} placeholder="80" onChange={e=>setTarget(clsName, e.target.value)} />
+                    <span className="muted small">%</span>
+                  </div>
+                  {target != null && s.hasUngraded && (
+                    <div className={s.neededPct > 100 ? "alert-text small" : "nominal"}>
+                      {s.neededPct > 100
+                        ? `Not mathematically possible with remaining points — needs ${s.neededPct.toFixed(0)}% avg`
+                        : `Need ${Math.max(0, s.neededPct).toFixed(1)}% avg on what's left to hit ${target}%`}
+                    </div>
+                  )}
+                  {target != null && !s.hasUngraded && s.hasGraded && (
+                    <div className="muted small">All graded work in — final grade locked at {s.currentPct.toFixed(1)}%.</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div style={{display:"flex", gap:6, marginBottom:6}}>
+          <input className="text-input" placeholder="CLASS (e.g. MATH 1010)" value={cls} onChange={e=>setCls(e.target.value)} />
         </div>
         <div style={{display:"flex", gap:6, marginBottom:6}}>
           <input className="text-input" placeholder="ASSIGNMENT / EXAM" value={title} onChange={e=>setTitle(e.target.value)} />
         </div>
-        <div className="add-row">
-          <input className="text-input" type="date" value={due} onChange={e=>setDue(e.target.value)} />
-          <button className="icon-btn add-btn" onClick={addItem}>{ICONS.plus}</button>
+        <div style={{display:"flex", gap:6, marginBottom:6}}>
+          <input className="text-input" type="date" value={due} onChange={e=>setDue(e.target.value)} style={{flex:1}} />
+          <input className="text-input" type="number" placeholder="PTS (optional)" value={points} onChange={e=>setPoints(e.target.value)} style={{width:110}} />
         </div>
+        <div className="add-row">
+          <button className="full-btn" onClick={addItem} style={{marginTop:0}}>ADD</button>
+        </div>
+
         <div className="project-list">
           {sorted.length===0 && <div className="muted">NOTHING TRACKED YET</div>}
           {sorted.map(i => {
@@ -710,15 +821,21 @@ function CourseworkApp({ onBack }) {
                   <span className="project-name">{i.cls} — {i.title}</span>
                   <button className="icon-btn" onClick={()=>removeItem(i.id)}>{ICONS.trash}</button>
                 </div>
-                <div style={{display:"flex", gap:8, alignItems:"center"}}>
+                <div style={{display:"flex", gap:8, alignItems:"center", flexWrap:"wrap"}}>
                   <button className={`stage-pill ${badgeClass}`} onClick={()=>toggleDone(i.id)}>{badgeText}</button>
                   <span className="muted small">{new Date(i.due+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
+                  {i.points != null && (
+                    <span style={{display:"flex", alignItems:"center", gap:4}}>
+                      <input className="text-input" type="number" style={{width:56, padding:"4px 6px"}} placeholder="score" value={i.score ?? ""} onChange={e=>setScore(i.id, e.target.value)} />
+                      <span className="muted small">/{i.points}</span>
+                    </span>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
-        <div className="muted small" style={{marginTop:10}}>Tap the badge to mark done/undone.</div>
+        <div className="muted small" style={{marginTop:10}}>Tap the badge to mark done/undone. Add points when creating an assignment, then fill in your score once it's graded — class grade and target-grade math update automatically above.</div>
       </>}
     </AppShell>
   );
@@ -791,7 +908,7 @@ function SettingsApp({ onBack }) {
 }
 
 // ---------- BACKUP ----------
-const BACKUP_KEYS = ["mios_habits", "mios_projects", "mios_notes", "mios_countdown", "mios_coursework", "mios_settings"];
+const BACKUP_KEYS = ["mios_habits", "mios_projects", "mios_notes", "mios_countdown", "mios_coursework", "mios_class_targets", "mios_budget", "mios_settings"];
 function BackupApp({ onBack }) {
   const [msg, setMsg] = useState("");
   const fileInputRef = useRef(null);
@@ -1028,6 +1145,97 @@ function CommandPalette({ open, onClose, onNavigate }) {
   );
 }
 
+// ---------- BUDGET ----------
+function monthKey(d = new Date()) { return d.toISOString().slice(0,7); }
+function BudgetApp({ onBack }) {
+  const [goal, setGoal] = useState("");
+  const [entries, setEntries] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+
+  useEffect(() => {
+    loadJSON("mios_budget", { goal: null, entries: [] }).then(b => {
+      setGoal(b.goal != null ? String(b.goal) : "");
+      setEntries(b.entries || []);
+      setLoaded(true);
+    });
+  }, []);
+
+  const persist = (nextGoal, nextEntries) => {
+    const g = nextGoal.trim()==="" ? null : parseFloat(nextGoal);
+    saveJSON("mios_budget", { goal: (g!=null && !isNaN(g)) ? g : null, entries: nextEntries });
+  };
+
+  const saveGoal = (val) => { setGoal(val); persist(val, entries); };
+
+  const addEntry = () => {
+    const amt = parseFloat(amount);
+    if (isNaN(amt) || amt <= 0) return;
+    const next = [{ id:"b"+Date.now(), amount: amt, note: note.trim() || "—", date: todayKey() }, ...entries];
+    setEntries(next);
+    persist(goal, next);
+    setAmount(""); setNote("");
+  };
+  const removeEntry = (id) => {
+    const next = entries.filter(e=>e.id!==id);
+    setEntries(next);
+    persist(goal, next);
+  };
+
+  const thisMonth = monthKey();
+  const monthEntries = entries.filter(e => e.date.startsWith(thisMonth));
+  const spent = monthEntries.reduce((s,e)=>s+e.amount, 0);
+  const goalNum = goal.trim()==="" ? null : parseFloat(goal);
+  const remaining = goalNum != null ? goalNum - spent : null;
+  const pctUsed = goalNum != null && goalNum > 0 ? (spent/goalNum*100) : null;
+  const barColor = pctUsed == null ? "var(--cyan)" : pctUsed >= 100 ? "var(--red-alert)" : pctUsed >= 80 ? "var(--amber)" : "var(--green-ok)";
+
+  return (
+    <AppShell title="BUDGET" icon={ICONS.budget} onBack={onBack}>
+      {!loaded ? <div className="muted">LOADING…</div> : <>
+        <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:14}}>
+          <span className="muted small">MONTHLY GOAL $</span>
+          <input className="text-input" type="number" style={{width:100}} value={goal} placeholder="e.g. 400" onChange={e=>saveGoal(e.target.value)} />
+        </div>
+
+        <div className="weather-hero" style={{marginBottom:8}}>
+          <div className="temp-big" style={{fontSize:32, color: barColor}}>${spent.toFixed(0)}</div>
+          <div className="weather-hero-meta">
+            <div className="condition">SPENT THIS MONTH</div>
+            <div className="muted">{remaining!=null ? `$${remaining.toFixed(0)} remaining` : "set a goal to track remaining"}</div>
+          </div>
+        </div>
+        {pctUsed != null && (
+          <div style={{height:6, background:"var(--bg-panel-2)", border:"1px solid var(--line)", marginBottom:16}}>
+            <div style={{height:"100%", width:`${Math.min(100,pctUsed)}%`, background:barColor}} />
+          </div>
+        )}
+
+        <div style={{display:"flex", gap:6, marginBottom:6}}>
+          <input className="text-input" type="number" placeholder="AMOUNT" value={amount} onChange={e=>setAmount(e.target.value)} style={{width:110}} />
+          <input className="text-input" placeholder="WHAT FOR" value={note} onChange={e=>setNote(e.target.value)} />
+        </div>
+        <button className="full-btn" onClick={addEntry} style={{marginBottom:14}}>ADD EXPENSE</button>
+
+        <div className="eyebrow" style={{fontSize:10, marginBottom:8}}>THIS MONTH</div>
+        <div className="note-list" style={{marginTop:0}}>
+          {monthEntries.length===0 && <div className="muted">NOTHING LOGGED YET</div>}
+          {monthEntries.map(e => (
+            <div className="note-item" key={e.id}>
+              <div className="note-foot">
+                <span className="note-text" style={{marginBottom:0}}>${e.amount.toFixed(2)} — {e.note}</span>
+                <button className="icon-btn" onClick={()=>removeEntry(e.id)}>{ICONS.trash}</button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="muted small" style={{marginTop:10}}>Resets automatically each calendar month. Old months stay in your backup export.</div>
+      </>}
+    </AppShell>
+  );
+}
+
 // ---------- HOME ----------
 const APPS = [
   { id:"weather", label:"WEATHER", icon:ICONS.weather, accent:"var(--cyan)" },
@@ -1041,6 +1249,7 @@ const APPS = [
   { id:"units", label:"UNIT CONVERTER", icon:ICONS.units, accent:"var(--cyan)" },
   { id:"countdown", label:"MISSION COUNTDOWN", icon:ICONS.countdown, accent:"var(--amber)" },
   { id:"coursework", label:"COURSEWORK", icon:ICONS.coursework, accent:"var(--cyan)" },
+  { id:"budget", label:"BUDGET", icon:ICONS.budget, accent:"var(--green-ok)" },
   { id:"settings", label:"SETTINGS", icon:ICONS.settings, accent:"var(--text-dim)" },
   { id:"backup", label:"SYSTEM BACKUP", icon:ICONS.backup, accent:"var(--text-dim)" },
 ];
@@ -1070,6 +1279,7 @@ function MIOS() {
       case "units": return <UnitApp onBack={goBack} />;
       case "countdown": return <CountdownApp onBack={goBack} />;
       case "coursework": return <CourseworkApp onBack={goBack} />;
+      case "budget": return <BudgetApp onBack={goBack} />;
       case "settings": return <SettingsApp onBack={goBack} />;
       case "backup": return <BackupApp onBack={goBack} />;
       default: return null;
