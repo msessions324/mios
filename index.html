@@ -342,30 +342,85 @@ function StormApp({ onBack, onStatus }) {
 }
 
 // ---------- FLIGHTS ----------
+let openskyToken = null;
+let openskyTokenExpiry = 0;
+async function getOpenSkyToken(clientId, clientSecret) {
+  if (openskyToken && Date.now() < openskyTokenExpiry) return openskyToken;
+  const res = await fetchWithTimeout(
+    "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `grant_type=client_credentials&client_id=${encodeURIComponent(clientId)}&client_secret=${encodeURIComponent(clientSecret)}`,
+    },
+    8000
+  );
+  if (!res.ok) throw new Error("token request failed");
+  const data = await res.json();
+  openskyToken = data.access_token;
+  openskyTokenExpiry = Date.now() + ((data.expires_in || 1800) - 30) * 1000;
+  return openskyToken;
+}
+
 function FlightApp({ onBack, onStatus }) {
   const [flights, setFlights] = useState([]);
   const [status, setStatus] = useState("pending");
   const [updated, setUpdated] = useState("");
+  const [authMode, setAuthMode] = useState(null);
+  const lastGoodRef = useRef([]);
+
   const load = useCallback(async () => {
     setStatus("pending");
+    const url = `https://opensky-network.org/api/states/all?lamin=${BBOX.lamin}&lomin=${BBOX.lomin}&lamax=${BBOX.lamax}&lomax=${BBOX.lomax}`;
+    let json = null;
+    let usedAuth = false;
+
     try {
-      const url = `https://opensky-network.org/api/states/all?lamin=${BBOX.lamin}&lomin=${BBOX.lomin}&lamax=${BBOX.lamax}&lomax=${BBOX.lomax}`;
-      const json = await fetchWithRetry(url, {}, 2, 7000);
+      const settings = await loadJSON("mios_settings", {});
+      if (settings.openskyClientId && settings.openskyClientSecret) {
+        try {
+          const token = await getOpenSkyToken(settings.openskyClientId, settings.openskyClientSecret);
+          const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${token}` } }, 8000);
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          json = await res.json();
+          usedAuth = true;
+        } catch (e) {
+          json = null; // fall through to anonymous below
+        }
+      }
+      if (!json) {
+        json = await fetchWithRetry(url, {}, 2, 7000);
+      }
+
       const rows = (json.states||[]).filter(s=>s[5]!=null&&s[6]!=null&&!s[8]).map(s=>({
         icao:s[0], callsign:(s[1]||"").trim()||"UNKNOWN", lon:s[5], lat:s[6],
         altFt:s[7]!=null?Math.round(s[7]*3.28084):null, speedKt:s[9]!=null?Math.round(s[9]*1.94384):null,
         heading:s[10]!=null?Math.round(s[10]):null,
       })).map(f=>({...f, nm:nmDistance(LAT,LON,f.lat,f.lon)})).sort((a,b)=>a.nm-b.nm).slice(0,8);
-      setFlights(rows); setStatus("ok");
-    } catch (e) { setFlights([]); setStatus("down"); }
+
+      setFlights(rows);
+      lastGoodRef.current = rows;
+      setAuthMode(usedAuth ? "auth" : "anon");
+      setStatus("ok");
+    } catch (e) {
+      if (lastGoodRef.current.length > 0) {
+        setFlights(lastGoodRef.current);
+        setStatus("stale");
+      } else {
+        setFlights([]);
+        setStatus("down");
+      }
+    }
     setUpdated(new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}));
   }, []);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { onStatus?.(status); }, [status]);
+  useEffect(() => { onStatus?.(status==="stale" ? "sim" : status); }, [status]);
   return (
-    <AppShell title="FLIGHT TRACKER · KCDC" icon={ICONS.flights} status={status} onBack={onBack} onRefresh={load}>
+    <AppShell title="FLIGHT TRACKER · KCDC" icon={ICONS.flights} status={status==="stale"?"sim":status} onBack={onBack} onRefresh={load}>
       {status==="pending" && flights.length===0 && <div className="muted">SWEEPING 65NM…</div>}
-      {status==="down" && <SimBanner text="OPENSKY FEED UNREACHABLE — LIKELY RATE-LIMITED, TRY REFRESH IN A MINUTE" />}
+      {status==="down" && <SimBanner text="OPENSKY FEED UNREACHABLE — LIKELY RATE-LIMITED (400/DAY ANONYMOUS CAP), TRY REFRESH IN A MINUTE" />}
+      {status==="stale" && <SimBanner text="COULDN'T REFRESH — SHOWING LAST KNOWN TRAFFIC, MAY BE OUT OF DATE" />}
+      {status==="ok" && authMode==="anon" && <div className="muted small" style={{marginBottom:8}}>Anonymous mode (400 req/day cap) — add OpenSky credentials in SETTINGS for 4,000/day.</div>}
       {status==="ok" && flights.length===0 && <div className="nominal">◆ NO TRAFFIC IN RANGE</div>}
       {flights.length>0 && <div className="flight-table">
         <div className="flight-row flight-head"><span>CALLSIGN</span><span>ALT</span><span>SPD</span><span>HDG</span><span>RNG</span></div>
@@ -849,6 +904,8 @@ function SettingsApp({ onBack }) {
   const [loaded, setLoaded] = useState(false);
   const [aioUsername, setAioUsername] = useState("");
   const [aioKey, setAioKey] = useState("");
+  const [openskyClientId, setOpenskyClientId] = useState("");
+  const [openskyClientSecret, setOpenskyClientSecret] = useState("");
   const [habitItems, setHabitItems] = useState(DEFAULT_HABIT_ITEMS);
   const [newHabit, setNewHabit] = useState("");
   const [saved, setSaved] = useState(false);
@@ -857,13 +914,15 @@ function SettingsApp({ onBack }) {
     loadJSON("mios_settings", {}).then(s => {
       setAioUsername(s.aioUsername || DEFAULT_AIO_USERNAME);
       setAioKey(s.aioKey || DEFAULT_AIO_KEY);
+      setOpenskyClientId(s.openskyClientId || "");
+      setOpenskyClientSecret(s.openskyClientSecret || "");
       setHabitItems(s.habitItems && s.habitItems.length ? s.habitItems : DEFAULT_HABIT_ITEMS);
       setLoaded(true);
     });
   }, []);
 
   const save = async () => {
-    await saveJSON("mios_settings", { aioUsername, aioKey, habitItems });
+    await saveJSON("mios_settings", { aioUsername, aioKey, openskyClientId, openskyClientSecret, habitItems });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -885,6 +944,15 @@ function SettingsApp({ onBack }) {
         <input className="text-input" value={aioUsername} onChange={e=>setAioUsername(e.target.value)} />
         <div className="muted small" style={{margin:"8px 0 4px"}}>AIO KEY</div>
         <input className="text-input" value={aioKey} onChange={e=>setAioKey(e.target.value)} />
+
+        <div className="eyebrow" style={{fontSize:10, margin:"18px 0 6px"}}>FLIGHT TRACKER / OPENSKY (OPTIONAL)</div>
+        <div className="muted small" style={{lineHeight:1.6, marginBottom:8}}>
+          Works with no setup (400 requests/day, shared). Free OpenSky account + API client gets you 4,000/day. Register at opensky-network.org → Account → API Client.
+        </div>
+        <div className="muted small" style={{marginBottom:4}}>CLIENT ID</div>
+        <input className="text-input" value={openskyClientId} onChange={e=>setOpenskyClientId(e.target.value)} />
+        <div className="muted small" style={{margin:"8px 0 4px"}}>CLIENT SECRET</div>
+        <input className="text-input" value={openskyClientSecret} onChange={e=>setOpenskyClientSecret(e.target.value)} />
 
         <div className="eyebrow" style={{fontSize:10, margin:"18px 0 8px"}}>HABIT TRACKER ITEMS</div>
         <div className="project-list" style={{marginBottom:8}}>
