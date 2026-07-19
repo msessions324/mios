@@ -16,6 +16,9 @@
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/mathjs/lib/browser/math.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: #06090b; }
@@ -83,11 +86,6 @@
   .flight-row { display:grid; grid-template-columns:1.6fr 1fr 0.8fr 0.7fr 0.7fr; font-size:10px; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.04); color:var(--text-primary); }
   .flight-head { color:var(--text-dim); font-size:8px; letter-spacing:0.05em; border-bottom:1px solid var(--line); }
   .mono-strong { color:var(--cyan); font-weight:600; }
-  .habit-list { display:flex; flex-direction:column; gap:6px; }
-  .habit-row { display:flex; align-items:center; gap:10px; border:1px solid var(--line); background:var(--bg-panel-2); padding:10px; color:var(--text-primary); font-size:11px; letter-spacing:0.04em; text-align:left; }
-  .habit-done { border-color:var(--green-ok); }
-  .habit-box { width:16px; height:16px; border:1px solid var(--text-dim); display:flex; align-items:center; justify-content:center; flex-shrink:0; color:var(--bg-void); font-size:10px; }
-  .habit-box-done { background:var(--green-ok); border-color:var(--green-ok); }
   .text-input, .select-input, .text-area { width:100%; background:var(--bg-panel-2); border:1px solid var(--line); color:var(--text-primary); padding:9px 10px; font-size:12px; }
   .text-area { min-height:70px; resize:vertical; }
   .add-row { display:flex; gap:6px; margin-bottom:12px; }
@@ -133,6 +131,24 @@
   .palette-result-label { font-size:12px; color:var(--text-primary); }
   .palette-result-tag { font-size:8px; color:var(--text-dim); letter-spacing:0.05em; border:1px solid var(--line); padding:2px 6px; }
   .palette-hint { color:var(--text-dim); font-size:9.5px; margin-top:10px; line-height:1.7; }
+
+  .calc-display { background:var(--bg-panel-2); border:1px solid var(--line); padding:14px 12px; text-align:right; margin-bottom:10px; }
+  .calc-expr { font-size:11px; color:var(--text-dim); min-height:14px; word-wrap:break-word; }
+  .calc-result { font-size:28px; color:var(--cyan); font-weight:700; word-wrap:break-word; }
+  .calc-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:5px; }
+  .calc-btn { background:var(--bg-panel-2); border:1px solid var(--line); color:var(--text-primary); padding:12px 0; font-size:12px; }
+  .calc-btn:active { background:var(--bg-panel); }
+  .calc-btn-op { color:var(--amber); }
+  .calc-btn-eq { background:var(--amber); color:var(--bg-void); font-weight:700; }
+  .calc-btn-fn { color:var(--cyan); font-size:10.5px; }
+
+  .home-widget { border:1px solid var(--line); background:var(--bg-panel); margin:0 12px 10px; max-width:876px; }
+  .home-widget-head { display:flex; justify-content:space-between; align-items:center; padding:8px 11px; border-bottom:1px solid var(--line); background:var(--bg-panel-2); }
+  .home-widget-body { padding:12px; }
+  .home-map { height:180px; width:100%; }
+  .home-map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9) saturate(0.6); }
+  .home-map .leaflet-control-attribution { background: rgba(13,20,24,0.8) !important; color: var(--text-dim) !important; font-size: 8px !important; }
+  .home-map .leaflet-control-attribution a { color: var(--text-dim) !important; }
 </style>
 </head>
 <body>
@@ -152,12 +168,6 @@ const BBOX = { lamin: 36.88, lamax: 38.48, lomin: -114.06, lomax: -112.06 };
 const DEFAULT_AIO_USERNAME = "MIOS";
 const DEFAULT_AIO_KEY = "aio_eHzH37bfkAOTTnS0qYtk94LUGufy";
 const LONGSHOT_FEEDS = ["longshot-temp", "longshot-pressure", "longshot-lat", "longshot-lon", "longshot-rssi"];
-const DEFAULT_HABIT_ITEMS = [
-  { key: "school", label: "SCHOOL" },
-  { key: "gym", label: "GYM" },
-  { key: "eating", label: "EATING" },
-  { key: "finance", label: "FINANCE" },
-];
 
 const WMO = {
   0: "CLEAR", 1: "MOSTLY CLEAR", 2: "PARTLY CLOUDY", 3: "OVERCAST",
@@ -172,10 +182,11 @@ const WMO = {
 
 const ICONS = {
   weather: "☁", storm: "⚠", flights: "✈", iss: "◎", longshot: "▲",
-  habits: "☑", projects: "⚙", notes: "✎", units: "▭", countdown: "◷",
-  coursework: "🎓", settings: "🛠", backup: "💾", budget: "💰",
+  projects: "⚙", notes: "✎", units: "▭", countdown: "◷", calc: "🧮",
+  settings: "🛠", backup: "💾", budget: "💰",
   back: "←", refresh: "↻", plus: "+", trash: "✕", check: "✓",
 };
+
 
 function fetchWithTimeout(url, opts = {}, ms = 6000) {
   const controller = new AbortController();
@@ -575,49 +586,6 @@ function LongshotApp({ onBack, onStatus }) {
   );
 }
 
-// ---------- HABITS ----------
-function HabitApp({ onBack }) {
-  const [log, setLog] = useState({});
-  const [items, setItems] = useState(DEFAULT_HABIT_ITEMS);
-  const [loaded, setLoaded] = useState(false);
-  const today = todayKey();
-  useEffect(() => {
-    Promise.all([loadJSON("mios_habits", {}), loadJSON("mios_settings", {})]).then(([h, s]) => {
-      setLog(h);
-      setItems(s.habitItems && s.habitItems.length ? s.habitItems : DEFAULT_HABIT_ITEMS);
-      setLoaded(true);
-    });
-  }, []);
-  const toggle = (key) => {
-    const day = { ...(log[today]||{}) }; day[key] = !day[key];
-    const next = { ...log, [today]: day }; setLog(next); saveJSON("mios_habits", next);
-  };
-  let streak = 0;
-  { let d = new Date();
-    while (true) { const k = todayKey(d); const day = log[k];
-      const allDone = day && items.every(it=>day[it.key]);
-      if (!allDone) break; streak++; d.setDate(d.getDate()-1); } }
-  const todayLog = log[today]||{};
-  const doneCount = items.filter(it=>todayLog[it.key]).length;
-  return (
-    <AppShell title="HABIT TRACKER" icon={ICONS.habits} onBack={onBack}>
-      {!loaded ? <div className="muted">LOADING…</div> : <>
-        <div className="weather-hero">
-          <div className="temp-big" style={{fontSize:34}}>{streak}</div>
-          <div className="weather-hero-meta"><div className="condition">DAY STREAK</div><div className="muted">{doneCount}/{items.length} DONE TODAY</div></div>
-        </div>
-        <div className="habit-list">
-          {items.map(it => { const done = !!todayLog[it.key];
-            return <button key={it.key} className={`habit-row ${done?"habit-done":""}`} onClick={()=>toggle(it.key)}>
-              <span className={`habit-box ${done?"habit-box-done":""}`}>{done && ICONS.check}</span><span>{it.label}</span>
-            </button>; })}
-        </div>
-        <div className="muted small" style={{marginTop:10}}>Tap to check off. Edit the list in SETTINGS. Streak counts consecutive all-done days.</div>
-      </>}
-    </AppShell>
-  );
-}
-
 // ---------- PROJECTS ----------
 const DEFAULT_PROJECTS = [
   { id:"p1", name:"3D Printer Rebuild", stage:"in-progress" },
@@ -684,7 +652,21 @@ function NotesApp({ onBack }) {
 }
 
 // ---------- UNIT CONVERTER ----------
-const UNIT_GROUPS = { Length:{m:1,ft:0.3048,in:0.0254,mm:0.001,cm:0.01,km:1000,mi:1609.34}, Torque:{"N·m":1,"lb·ft":1.35582,"lb·in":0.112985}, Pressure:{Pa:1,kPa:1000,psi:6894.76,bar:100000,atm:101325}, Temperature:null };
+const UNIT_GROUPS = {
+  Length: { m:1, ft:0.3048, in:0.0254, mm:0.001, cm:0.01, km:1000, mi:1609.34, nmi:1852, yd:0.9144 },
+  Mass: { kg:1, g:0.001, lb:0.453592, oz:0.0283495, slug:14.5939, ton:907.185 },
+  Force: { N:1, lbf:4.44822, kgf:9.80665, dyne:0.00001 },
+  Torque: { "N·m":1, "lb·ft":1.35582, "lb·in":0.112985, "kg·m":9.80665 },
+  Pressure: { Pa:1, kPa:1000, psi:6894.76, bar:100000, atm:101325, mmHg:133.322, inHg:3386.39 },
+  Temperature: null,
+  Energy: { J:1, kJ:1000, cal:4.184, kcal:4184, BTU:1055.06, "ft·lb":1.35582, kWh:3600000 },
+  Power: { W:1, kW:1000, hp:745.7, "BTU/h":0.293071, "ft·lb/s":1.35582 },
+  Volume: { L:1, mL:0.001, "gal(US)":3.78541, "ft³":28.3168, "in³":0.0163871, "m³":1000 },
+  Area: { "m²":1, "ft²":0.092903, "in²":0.00064516, "km²":1000000, acre:4046.86, "mi²":2589988.11 },
+  Speed: { "m/s":1, "km/h":0.277778, mph:0.44704, kt:0.514444, "ft/s":0.3048 },
+  Density: { "kg/m³":1, "g/cm³":1000, "lb/ft³":16.0185 },
+  Angle: { rad:1, deg:0.0174533, grad:0.0157080 },
+};
 function convertTemp(val, from, to) {
   let c = from==="C" ? val : from==="F" ? (val-32)*(5/9) : val-273.15;
   return to==="C" ? c : to==="F" ? c*(9/5)+32 : c+273.15;
@@ -743,159 +725,6 @@ function CountdownApp({ onBack }) {
   );
 }
 
-// ---------- COURSEWORK ----------
-function daysUntil(dateStr) {
-  const target = new Date(dateStr + "T00:00:00");
-  const now = new Date();
-  now.setHours(0,0,0,0);
-  return Math.round((target - now) / 86400000);
-}
-function classSummary(items, target) {
-  const graded = items.filter(i => i.points != null && i.score != null);
-  const ungraded = items.filter(i => i.points != null && i.score == null);
-  const totalScored = graded.reduce((s,i)=>s+i.score, 0);
-  const totalPossibleGraded = graded.reduce((s,i)=>s+i.points, 0);
-  const totalPossibleUngraded = ungraded.reduce((s,i)=>s+i.points, 0);
-  const currentPct = totalPossibleGraded > 0 ? (totalScored/totalPossibleGraded*100) : null;
-  let neededPct = null;
-  if (target != null && totalPossibleUngraded > 0) {
-    const totalPoints = totalPossibleGraded + totalPossibleUngraded;
-    const neededPoints = (target/100)*totalPoints - totalScored;
-    neededPct = (neededPoints/totalPossibleUngraded)*100;
-  }
-  return { currentPct, neededPct, hasUngraded: totalPossibleUngraded > 0, hasGraded: totalPossibleGraded > 0 };
-}
-function CourseworkApp({ onBack }) {
-  const [items, setItems] = useState([]);
-  const [targets, setTargets] = useState({});
-  const [loaded, setLoaded] = useState(false);
-  const [cls, setCls] = useState("");
-  const [title, setTitle] = useState("");
-  const [due, setDue] = useState("");
-  const [points, setPoints] = useState("");
-
-  useEffect(() => {
-    Promise.all([loadJSON("mios_coursework", []), loadJSON("mios_class_targets", {})]).then(([i,t]) => {
-      setItems(i); setTargets(t); setLoaded(true);
-    });
-  }, []);
-  const persist = (next) => { setItems(next); saveJSON("mios_coursework", next); };
-  const persistTargets = (next) => { setTargets(next); saveJSON("mios_class_targets", next); };
-
-  const addItem = () => {
-    if (!cls.trim() || !title.trim() || !due) return;
-    const pts = points.trim() === "" ? null : parseFloat(points);
-    persist([...items, { id: "c"+Date.now(), cls: cls.trim().toUpperCase(), title: title.trim(), due, done: false, points: (pts!=null && !isNaN(pts)) ? pts : null, score: null }]);
-    setTitle(""); setDue(""); setPoints("");
-  };
-  const toggleDone = (id) => persist(items.map(i => i.id===id ? {...i, done: !i.done} : i));
-  const removeItem = (id) => persist(items.filter(i => i.id!==id));
-  const setScore = (id, val) => {
-    const num = val.trim()==="" ? null : parseFloat(val);
-    persist(items.map(i => i.id===id ? {...i, score: (num!=null && !isNaN(num)) ? num : null} : i));
-  };
-  const setTarget = (clsName, val) => {
-    const num = val.trim()==="" ? null : parseFloat(val);
-    persistTargets({ ...targets, [clsName]: (num!=null && !isNaN(num)) ? num : null });
-  };
-
-  const sorted = [...items].sort((a,b) => {
-    if (a.done !== b.done) return a.done ? 1 : -1;
-    return new Date(a.due) - new Date(b.due);
-  });
-
-  const classNames = [...new Set(items.map(i=>i.cls))];
-
-  return (
-    <AppShell title="COURSEWORK" icon={ICONS.coursework} onBack={onBack}>
-      {!loaded ? <div className="muted">LOADING…</div> : <>
-        {classNames.length > 0 && (
-          <div className="project-list" style={{marginBottom:14}}>
-            {classNames.map(clsName => {
-              const clsItems = items.filter(i=>i.cls===clsName);
-              const target = targets[clsName];
-              const s = classSummary(clsItems, target);
-              return (
-                <div className="project-item" key={clsName}>
-                  <div className="project-item-top">
-                    <span className="project-name">{clsName}</span>
-                    <span className="mono-strong">{s.currentPct!=null ? s.currentPct.toFixed(1)+"%" : "—"}</span>
-                  </div>
-                  <div style={{display:"flex", gap:8, alignItems:"center", marginBottom: s.hasUngraded ? 6 : 0}}>
-                    <span className="muted small">TARGET</span>
-                    <input className="text-input" type="number" style={{width:70, padding:"5px 8px"}} value={target ?? ""} placeholder="80" onChange={e=>setTarget(clsName, e.target.value)} />
-                    <span className="muted small">%</span>
-                  </div>
-                  {target != null && s.hasUngraded && (
-                    <div className={s.neededPct > 100 ? "alert-text small" : "nominal"}>
-                      {s.neededPct > 100
-                        ? `Not mathematically possible with remaining points — needs ${s.neededPct.toFixed(0)}% avg`
-                        : `Need ${Math.max(0, s.neededPct).toFixed(1)}% avg on what's left to hit ${target}%`}
-                    </div>
-                  )}
-                  {target != null && !s.hasUngraded && s.hasGraded && (
-                    <div className="muted small">All graded work in — final grade locked at {s.currentPct.toFixed(1)}%.</div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <div style={{display:"flex", gap:6, marginBottom:6}}>
-          <input className="text-input" placeholder="CLASS (e.g. MATH 1010)" value={cls} onChange={e=>setCls(e.target.value)} />
-        </div>
-        <div style={{display:"flex", gap:6, marginBottom:6}}>
-          <input className="text-input" placeholder="ASSIGNMENT / EXAM" value={title} onChange={e=>setTitle(e.target.value)} />
-        </div>
-        <div style={{display:"flex", gap:6, marginBottom:6}}>
-          <input className="text-input" type="date" value={due} onChange={e=>setDue(e.target.value)} style={{flex:1}} />
-          <input className="text-input" type="number" placeholder="PTS (optional)" value={points} onChange={e=>setPoints(e.target.value)} style={{width:110}} />
-        </div>
-        <div className="add-row">
-          <button className="full-btn" onClick={addItem} style={{marginTop:0}}>ADD</button>
-        </div>
-
-        <div className="project-list">
-          {sorted.length===0 && <div className="muted">NOTHING TRACKED YET</div>}
-          {sorted.map(i => {
-            const d = daysUntil(i.due);
-            let badgeClass = "stage-planning";
-            let badgeText = i.done ? "DONE" : d < 0 ? "OVERDUE" : d===0 ? "DUE TODAY" : `${d}D LEFT`;
-            if (!i.done) {
-              if (d < 0) badgeClass = "stage-testing";
-              else if (d <= 2) badgeClass = "stage-testing";
-              else if (d <= 7) badgeClass = "stage-in-progress";
-              else badgeClass = "stage-planning";
-            } else {
-              badgeClass = "stage-done";
-            }
-            return (
-              <div className="project-item" key={i.id} style={{opacity: i.done ? 0.55 : 1}}>
-                <div className="project-item-top">
-                  <span className="project-name">{i.cls} — {i.title}</span>
-                  <button className="icon-btn" onClick={()=>removeItem(i.id)}>{ICONS.trash}</button>
-                </div>
-                <div style={{display:"flex", gap:8, alignItems:"center", flexWrap:"wrap"}}>
-                  <button className={`stage-pill ${badgeClass}`} onClick={()=>toggleDone(i.id)}>{badgeText}</button>
-                  <span className="muted small">{new Date(i.due+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
-                  {i.points != null && (
-                    <span style={{display:"flex", alignItems:"center", gap:4}}>
-                      <input className="text-input" type="number" style={{width:56, padding:"4px 6px"}} placeholder="score" value={i.score ?? ""} onChange={e=>setScore(i.id, e.target.value)} />
-                      <span className="muted small">/{i.points}</span>
-                    </span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div className="muted small" style={{marginTop:10}}>Tap the badge to mark done/undone. Add points when creating an assignment, then fill in your score once it's graded — class grade and target-grade math update automatically above.</div>
-      </>}
-    </AppShell>
-  );
-}
-
 // ---------- SETTINGS ----------
 function slugify(s) {
   return s.trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"") || ("h"+Date.now());
@@ -906,8 +735,6 @@ function SettingsApp({ onBack }) {
   const [aioKey, setAioKey] = useState("");
   const [openskyClientId, setOpenskyClientId] = useState("");
   const [openskyClientSecret, setOpenskyClientSecret] = useState("");
-  const [habitItems, setHabitItems] = useState(DEFAULT_HABIT_ITEMS);
-  const [newHabit, setNewHabit] = useState("");
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -916,24 +743,14 @@ function SettingsApp({ onBack }) {
       setAioKey(s.aioKey || DEFAULT_AIO_KEY);
       setOpenskyClientId(s.openskyClientId || "");
       setOpenskyClientSecret(s.openskyClientSecret || "");
-      setHabitItems(s.habitItems && s.habitItems.length ? s.habitItems : DEFAULT_HABIT_ITEMS);
       setLoaded(true);
     });
   }, []);
 
   const save = async () => {
-    await saveJSON("mios_settings", { aioUsername, aioKey, openskyClientId, openskyClientSecret, habitItems });
+    await saveJSON("mios_settings", { aioUsername, aioKey, openskyClientId, openskyClientSecret });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
-  };
-
-  const renameHabit = (key, label) => setHabitItems(habitItems.map(it => it.key===key ? {...it, label} : it));
-  const removeHabit = (key) => setHabitItems(habitItems.filter(it => it.key!==key));
-  const addHabit = () => {
-    const label = newHabit.trim().toUpperCase();
-    if (!label) return;
-    setHabitItems([...habitItems, { key: slugify(label)+"-"+Date.now().toString(36), label }]);
-    setNewHabit("");
   };
 
   return (
@@ -954,29 +771,15 @@ function SettingsApp({ onBack }) {
         <div className="muted small" style={{margin:"8px 0 4px"}}>CLIENT SECRET</div>
         <input className="text-input" value={openskyClientSecret} onChange={e=>setOpenskyClientSecret(e.target.value)} />
 
-        <div className="eyebrow" style={{fontSize:10, margin:"18px 0 8px"}}>HABIT TRACKER ITEMS</div>
-        <div className="project-list" style={{marginBottom:8}}>
-          {habitItems.map(it => (
-            <div className="project-item" key={it.key} style={{display:"flex", alignItems:"center", gap:8, flexDirection:"row"}}>
-              <input className="text-input" style={{flex:1}} value={it.label} onChange={e=>renameHabit(it.key, e.target.value.toUpperCase())} />
-              <button className="icon-btn" onClick={()=>removeHabit(it.key)}>{ICONS.trash}</button>
-            </div>
-          ))}
-        </div>
-        <div className="add-row">
-          <input className="text-input" placeholder="NEW HABIT" value={newHabit} onChange={e=>setNewHabit(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addHabit()} />
-          <button className="icon-btn add-btn" onClick={addHabit}>{ICONS.plus}</button>
-        </div>
-
         <button className="full-btn" onClick={save} style={{marginTop:18}}>{saved ? "SAVED ✓" : "SAVE SETTINGS"}</button>
-        <div className="muted small" style={{marginTop:10}}>Longshot changes apply next time you open it. Habit changes apply next time you open Habit Tracker.</div>
+        <div className="muted small" style={{marginTop:10}}>Longshot and Flight Tracker changes apply next time you open them.</div>
       </>}
     </AppShell>
   );
 }
 
 // ---------- BACKUP ----------
-const BACKUP_KEYS = ["mios_habits", "mios_projects", "mios_notes", "mios_countdown", "mios_coursework", "mios_class_targets", "mios_budget", "mios_settings"];
+const BACKUP_KEYS = ["mios_projects", "mios_notes", "mios_countdown", "mios_budget", "mios_settings"];
 function BackupApp({ onBack }) {
   const [msg, setMsg] = useState("");
   const fileInputRef = useRef(null);
@@ -1019,7 +822,7 @@ function BackupApp({ onBack }) {
   };
 
   const clearAll = () => {
-    if (!window.confirm("This wipes all local MIOS data on this device — habits, projects, notes, coursework, settings. Export a backup first if you want to keep it. Continue?")) return;
+    if (!window.confirm("This wipes all local MIOS data on this device — projects, notes, countdown, budget, settings. Export a backup first if you want to keep it. Continue?")) return;
     BACKUP_KEYS.forEach(k => localStorage.removeItem(k));
     setMsg("Cleared. Reloading…");
     setTimeout(() => window.location.reload(), 900);
@@ -1028,7 +831,7 @@ function BackupApp({ onBack }) {
   return (
     <AppShell title="SYSTEM BACKUP" icon={ICONS.backup} onBack={onBack}>
       <div className="muted" style={{lineHeight:1.6, marginBottom:14}}>
-        Habits, projects, notes, coursework, and settings all live only in this browser's local storage. Clearing site data or switching browsers/devices loses it — export a backup now and then, especially before doing anything drastic.
+        Projects, notes, countdown, budget, and settings all live only in this browser's local storage. Clearing site data or switching browsers/devices loses it — export a backup now and then, especially before doing anything drastic.
       </div>
       <button className="full-btn" onClick={exportData}>EXPORT BACKUP (.json)</button>
       <button className="full-btn" onClick={()=>fileInputRef.current.click()} style={{marginTop:8}}>IMPORT BACKUP</button>
@@ -1039,45 +842,6 @@ function BackupApp({ onBack }) {
   );
 }
 
-// ---------- DAILY BRIEF ----------
-function useDailyBrief(refreshKey) {
-  const [brief, setBrief] = useState(null);
-  useEffect(() => {
-    let cancelled = false;
-    async function run() {
-      const [habitsLog, settings, coursework, countdown] = await Promise.all([
-        loadJSON("mios_habits", {}),
-        loadJSON("mios_settings", {}),
-        loadJSON("mios_coursework", []),
-        loadJSON("mios_countdown", null),
-      ]);
-      const items = settings.habitItems && settings.habitItems.length ? settings.habitItems : DEFAULT_HABIT_ITEMS;
-      const today = todayKey();
-      const todayLog = habitsLog[today] || {};
-      const doneCount = items.filter(it => todayLog[it.key]).length;
-
-      const upcoming = (coursework || []).filter(i => !i.done).sort((a,b) => new Date(a.due) - new Date(b.due))[0];
-
-      let weatherStr = null;
-      try {
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,weather_code&temperature_unit=fahrenheit&timezone=America%2FDenver`;
-        const w = await fetchWithRetry(url, {}, 1, 5000);
-        weatherStr = `${Math.round(w.current.temperature_2m)}° ${(WMO[w.current.weather_code]||"").toLowerCase()}`;
-      } catch (e) {}
-
-      if (cancelled) return;
-      setBrief({
-        weatherStr,
-        habitsStr: `${doneCount}/${items.length} habits done`,
-        courseworkStr: upcoming ? `${upcoming.cls} due ${daysUntil(upcoming.due)<=0 ? "today" : daysUntil(upcoming.due)+"d"}` : null,
-        countdownStr: countdown ? `${countdown.label} in ${Math.max(0, Math.ceil((new Date(countdown.date+"T00:00:00") - new Date())/86400000))}d` : null,
-      });
-    }
-    run();
-    return () => { cancelled = true; };
-  }, [refreshKey]);
-  return brief;
-}
 
 // ---------- COMMAND PALETTE ----------
 function CommandPalette({ open, onClose, onNavigate }) {
@@ -1085,8 +849,6 @@ function CommandPalette({ open, onClose, onNavigate }) {
   const [listening, setListening] = useState(false);
   const [notes, setNotes] = useState([]);
   const [projects, setProjects] = useState([]);
-  const [coursework, setCoursework] = useState([]);
-  const [habitItems, setHabitItems] = useState(DEFAULT_HABIT_ITEMS);
   const [flash, setFlash] = useState("");
   const inputRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -1097,11 +859,8 @@ function CommandPalette({ open, onClose, onNavigate }) {
     Promise.all([
       loadJSON("mios_notes", []),
       loadJSON("mios_projects", []),
-      loadJSON("mios_coursework", []),
-      loadJSON("mios_settings", {}),
-    ]).then(([n, p, c, s]) => {
-      setNotes(n); setProjects(p); setCoursework(c);
-      setHabitItems(s.habitItems && s.habitItems.length ? s.habitItems : DEFAULT_HABIT_ITEMS);
+    ]).then(([n, p]) => {
+      setNotes(n); setProjects(p);
     });
     setTimeout(() => inputRef.current?.focus(), 50);
   }, [open]);
@@ -1136,34 +895,21 @@ function CommandPalette({ open, onClose, onNavigate }) {
       setFlash("Note added.");
       return true;
     }
-    if (lower.startsWith("habit:")) {
-      const term = lower.slice(6).trim();
-      const match = habitItems.find(it => it.label.toLowerCase().includes(term));
-      if (!match) { setFlash("No matching habit."); return true; }
-      const log = await loadJSON("mios_habits", {});
-      const today = todayKey();
-      const day = { ...(log[today]||{}) };
-      day[match.key] = !day[match.key];
-      await saveJSON("mios_habits", { ...log, [today]: day });
-      setFlash(`${match.label} ${day[match.key] ? "checked" : "unchecked"}.`);
-      return true;
-    }
     return false;
   };
 
   const results = React.useMemo(() => {
     const q = query.toLowerCase().trim();
     if (!q) return APPS.map(a => ({ type:"app", id:a.id, label:a.label }));
-    if (q.startsWith("note:") || q.startsWith("habit:")) {
+    if (q.startsWith("note:")) {
       return [{ type:"action", label: `Run: ${query}` }];
     }
     const out = [];
     APPS.forEach(a => { if (a.label.toLowerCase().includes(q)) out.push({ type:"app", id:a.id, label:a.label }); });
     notes.forEach(n => { if (n.text.toLowerCase().includes(q)) out.push({ type:"nav", id:"notes", label: n.text.slice(0,60), tag:"NOTE" }); });
     projects.forEach(p => { if (p.name.toLowerCase().includes(q)) out.push({ type:"nav", id:"projects", label: p.name, tag:"PROJECT" }); });
-    coursework.forEach(c => { if ((c.cls+" "+c.title).toLowerCase().includes(q)) out.push({ type:"nav", id:"coursework", label: `${c.cls} — ${c.title}`, tag:"COURSEWORK" }); });
     return out.slice(0, 12);
-  }, [query, notes, projects, coursework]);
+  }, [query, notes, projects]);
 
   const selectResult = async (r) => {
     if (r.type === "action") {
@@ -1185,7 +931,7 @@ function CommandPalette({ open, onClose, onNavigate }) {
           <input
             ref={inputRef}
             className="palette-input"
-            placeholder='Search, or try "note: ..." / "habit: gym"'
+            placeholder='Search, or try "note: ..."'
             value={query}
             onChange={e=>setQuery(e.target.value)}
             onKeyDown={e => { if (e.key==="Enter" && results[0]) selectResult(results[0]); if (e.key==="Escape") onClose(); }}
@@ -1206,7 +952,7 @@ function CommandPalette({ open, onClose, onNavigate }) {
           {results.length===0 && <div className="muted">No matches.</div>}
         </div>
         <div className="palette-hint">
-          Type to jump anywhere or search notes/projects/coursework. "note: idea text" adds a note instantly. "habit: gym" toggles today. {SpeechRecognitionClass ? "Tap the mic to speak instead." : "Voice input isn't supported in this browser (Safari/iOS doesn't support it — works in Chrome)."}
+          Type to jump anywhere or search notes/projects. "note: idea text" adds a note instantly. {SpeechRecognitionClass ? "Tap the mic to speak instead." : "Voice input isn't supported in this browser (Safari/iOS doesn't support it — works in Chrome)."}
         </div>
       </div>
     </div>
@@ -1305,18 +1051,201 @@ function BudgetApp({ onBack }) {
 }
 
 // ---------- HOME ----------
+// ---------- CALCULATOR ----------
+function CalculatorApp({ onBack }) {
+  const [expr, setExpr] = useState("");
+  const [result, setResult] = useState("");
+
+  const append = (token) => setExpr(e => e + token);
+  const clear = () => { setExpr(""); setResult(""); };
+  const del = () => setExpr(e => e.slice(0, -1));
+  const equals = () => {
+    try { setResult(String(math.evaluate(expr))); }
+    catch (e) { setResult("ERROR"); }
+  };
+
+  useEffect(() => {
+    if (!expr) { setResult(""); return; }
+    try { setResult(String(math.evaluate(expr))); }
+    catch (e) { /* mid-typing invalid expression — leave last good result displayed */ }
+  }, [expr]);
+
+  const ROWS = [
+    ["sin(","cos(","tan(","^","AC"],
+    ["√(","ln(","log(","(",")"],
+    ["7","8","9","/","%"],
+    ["4","5","6","*","π"],
+    ["1","2","3","-","e"],
+    ["0",".","DEL","+","="],
+  ];
+  const OP = ["+","-","*","/","^"];
+  const FN = ["sin(","cos(","tan(","√(","ln(","log(","AC","DEL"];
+
+  const press = (btn) => {
+    if (btn === "AC") return clear();
+    if (btn === "DEL") return del();
+    if (btn === "=") return equals();
+    if (btn === "√(") return append("sqrt(");
+    if (btn === "π") return append("pi");
+    append(btn);
+  };
+
+  return (
+    <AppShell title="CALCULATOR" icon={ICONS.calc} onBack={onBack}>
+      <div className="calc-display">
+        <div className="calc-expr">{expr || " "}</div>
+        <div className="calc-result">{result || "0"}</div>
+      </div>
+      <div className="calc-grid">
+        {ROWS.flat().map((b,i) => (
+          <button
+            key={i}
+            className={`calc-btn ${b==="="?"calc-btn-eq":OP.includes(b)?"calc-btn-op":FN.includes(b)?"calc-btn-fn":""}`}
+            onClick={()=>press(b)}
+          >{b}</button>
+        ))}
+      </div>
+      <div className="muted small" style={{marginTop:10}}>Trig in radians. Type parens to close functions yourself.</div>
+    </AppShell>
+  );
+}
+
+// ---------- HOME DASHBOARD WIDGETS ----------
+function HomeWeatherWidget() {
+  const [data, setData] = useState(null);
+  const [status, setStatus] = useState("pending");
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&timezone=America%2FDenver&forecast_days=1`;
+        const json = await fetchWithRetry(url, {}, 2, 6000);
+        if (!cancelled) { setData(json); setStatus("ok"); }
+      } catch (e) { if (!cancelled) setStatus("down"); }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  const c = data?.current, d = data?.daily;
+  return (
+    <div className="home-widget">
+      <div className="home-widget-head">
+        <span className="eyebrow" style={{fontSize:10}}>{ICONS.weather} WEATHER · CEDAR CITY</span>
+        <StatusLED status={status==="ok"?"ok":status==="down"?"down":"pending"} />
+      </div>
+      <div className="home-widget-body">
+        {status==="pending" && <div className="muted">ACQUIRING…</div>}
+        {status==="down" && <div className="muted" style={{color:"var(--red-alert)"}}>LINK DOWN</div>}
+        {c && (
+          <div className="weather-hero" style={{marginBottom:0}}>
+            <div className="temp-big" style={{fontSize:34}}>{Math.round(c.temperature_2m)}°</div>
+            <div className="weather-hero-meta">
+              <div className="condition">{WMO[c.weather_code] ?? "—"}</div>
+              {d && <div className="muted">H {Math.round(d.temperature_2m_max[0])}° · L {Math.round(d.temperature_2m_min[0])}°</div>}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HomeLongshotMap({ lat, lon }) {
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markerRef = useRef(null);
+
+  useEffect(() => {
+    if (!mapRef.current || mapInstanceRef.current || typeof L === "undefined") return;
+    const map = L.map(mapRef.current, { zoomControl: false }).setView([lat, lon], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
+    mapInstanceRef.current = map;
+    return () => { map.remove(); mapInstanceRef.current = null; };
+  }, []);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || lat == null || lon == null) return;
+    if (markerRef.current) {
+      markerRef.current.setLatLng([lat, lon]);
+    } else {
+      markerRef.current = L.circleMarker([lat, lon], { radius: 7, color: "#ffb400", fillColor: "#ffb400", fillOpacity: 0.9, weight: 2 }).addTo(map);
+    }
+    map.setView([lat, lon], map.getZoom());
+  }, [lat, lon]);
+
+  return <div ref={mapRef} className="home-map" />;
+}
+
+function HomeLongshotWidget() {
+  const [readings, setReadings] = useState(null);
+  const [tempHistory, setTempHistory] = useState(null);
+  const [status, setStatus] = useState("pending");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const settings = await loadJSON("mios_settings", {});
+        const user = settings.aioUsername || DEFAULT_AIO_USERNAME;
+        const key = settings.aioKey || DEFAULT_AIO_KEY;
+        const results = await Promise.all(LONGSHOT_FEEDS.map(feed =>
+          fetchWithRetry(`https://io.adafruit.com/api/v2/${user}/feeds/${feed}/data/last?x-aio-key=${key}`, {}, 2, 6000)
+        ));
+        const [temp, pres, lat, lon, rssi] = results;
+        if (cancelled) return;
+        setReadings({ temp: parseFloat(temp.value), pres: parseFloat(pres.value), lat: parseFloat(lat.value), lon: parseFloat(lon.value), rssi: parseFloat(rssi.value) });
+        setStatus("ok");
+        try {
+          const tempH = await fetchWithRetry(`https://io.adafruit.com/api/v2/${user}/feeds/longshot-temp/data?limit=20&x-aio-key=${key}`, {}, 1, 6000);
+          if (!cancelled) setTempHistory(tempH.map(d=>parseFloat(d.value)).reverse());
+        } catch (e) {}
+      } catch (e) {
+        if (!cancelled) setStatus("down");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const hasFix = readings && !(readings.lat===0 && readings.lon===0);
+
+  return (
+    <div className="home-widget">
+      <div className="home-widget-head">
+        <span className="eyebrow" style={{fontSize:10}}>{ICONS.longshot} LONGSHOT · MI-02</span>
+        <StatusLED status={status==="ok"?"ok":status==="down"?"down":"pending"} />
+      </div>
+      <div className="home-widget-body">
+        {status==="pending" && <div className="muted">PULLING TELEMETRY…</div>}
+        {status==="down" && <div className="muted" style={{color:"var(--red-alert)"}}>LINK DOWN — CHECK BASE NODE</div>}
+        {readings && <>
+          <div className="stat-grid" style={{marginBottom:10}}>
+            <div className="stat"><span className="stat-label">TEMP</span><span className="stat-val">{readings.temp.toFixed(1)}°C</span></div>
+            <div className="stat"><span className="stat-label">PRESSURE</span><span className="stat-val">{readings.pres.toFixed(1)} hPa</span></div>
+            <div className="stat"><span className="stat-label">RSSI</span><span className="stat-val">{readings.rssi.toFixed(0)} dBm</span></div>
+            <div className="stat"><span className="stat-label">GPS FIX</span><span className="stat-val">{hasFix ? "YES" : "NO"}</span></div>
+          </div>
+          <div className="eyebrow" style={{fontSize:9, marginBottom:4}}>TEMP TREND</div>
+          <Sparkline data={tempHistory} color="var(--cyan)" />
+          {hasFix
+            ? <div style={{marginTop:10}}><HomeLongshotMap lat={readings.lat} lon={readings.lon} /></div>
+            : <div className="muted small" style={{marginTop:8}}>No GPS fix yet — map appears once the remote node locks on.</div>}
+        </>}
+      </div>
+    </div>
+  );
+}
+
 const APPS = [
   { id:"weather", label:"WEATHER", icon:ICONS.weather, accent:"var(--cyan)" },
   { id:"storm", label:"STORM ALERTS", icon:ICONS.storm, accent:"var(--amber)" },
   { id:"flights", label:"FLIGHT TRACKER", icon:ICONS.flights, accent:"var(--cyan)" },
   { id:"iss", label:"ISS TRACKER", icon:ICONS.iss, accent:"var(--cyan)" },
   { id:"longshot", label:"LONGSHOT · MI-02", icon:ICONS.longshot, accent:"var(--green-ok)" },
-  { id:"habits", label:"HABIT TRACKER", icon:ICONS.habits, accent:"var(--green-ok)" },
   { id:"projects", label:"PROJECT LOG", icon:ICONS.projects, accent:"var(--amber)" },
   { id:"notes", label:"ENGINEERING NOTES", icon:ICONS.notes, accent:"var(--green-ok)" },
   { id:"units", label:"UNIT CONVERTER", icon:ICONS.units, accent:"var(--cyan)" },
+  { id:"calc", label:"CALCULATOR", icon:ICONS.calc, accent:"var(--cyan)" },
   { id:"countdown", label:"MISSION COUNTDOWN", icon:ICONS.countdown, accent:"var(--amber)" },
-  { id:"coursework", label:"COURSEWORK", icon:ICONS.coursework, accent:"var(--cyan)" },
   { id:"budget", label:"BUDGET", icon:ICONS.budget, accent:"var(--green-ok)" },
   { id:"settings", label:"SETTINGS", icon:ICONS.settings, accent:"var(--text-dim)" },
   { id:"backup", label:"SYSTEM BACKUP", icon:ICONS.backup, accent:"var(--text-dim)" },
@@ -1328,7 +1257,6 @@ function MIOS() {
   const [moduleStatus, setModuleStatus] = useState({});
   const [paletteOpen, setPaletteOpen] = useState(false);
   const now = useClock();
-  const brief = useDailyBrief(screen);
   const setStatusFor = (id) => (s) => setModuleStatus(prev => ({...prev, [id]: s}));
   const localTime = now.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",hour12:false});
   const dateStr = now.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
@@ -1341,12 +1269,11 @@ function MIOS() {
       case "flights": return <FlightApp onBack={goBack} onStatus={setStatusFor("flights")} />;
       case "iss": return <IssApp onBack={goBack} onStatus={setStatusFor("iss")} />;
       case "longshot": return <LongshotApp onBack={goBack} onStatus={setStatusFor("longshot")} />;
-      case "habits": return <HabitApp onBack={goBack} />;
       case "projects": return <ProjectApp onBack={goBack} />;
       case "notes": return <NotesApp onBack={goBack} />;
       case "units": return <UnitApp onBack={goBack} />;
+      case "calc": return <CalculatorApp onBack={goBack} />;
       case "countdown": return <CountdownApp onBack={goBack} />;
-      case "coursework": return <CourseworkApp onBack={goBack} />;
       case "budget": return <BudgetApp onBack={goBack} />;
       case "settings": return <SettingsApp onBack={goBack} />;
       case "backup": return <BackupApp onBack={goBack} />;
@@ -1368,13 +1295,8 @@ function MIOS() {
           <span>LIVE FEEDS: <b>{liveCount}/{LIVE_APP_IDS.length}</b></span>
         </div>
       </div>
-      {brief && (
-        <div className="brief-line">
-          {[brief.weatherStr, brief.habitsStr, brief.courseworkStr, brief.countdownStr].filter(Boolean).map((s,i,arr) => (
-            <React.Fragment key={i}>{s}{i<arr.length-1 && <span className="sep">·</span>}</React.Fragment>
-          ))}
-        </div>
-      )}
+      <HomeWeatherWidget />
+      <HomeLongshotWidget />
       <div className="app-grid">
         {APPS.map(a => (
           <button key={a.id} className="app-icon-btn" onClick={()=>setScreen(a.id)}>
