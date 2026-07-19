@@ -41,7 +41,7 @@
   .clock-block .big-time { font-size:17px; color:var(--cyan); font-weight:600; }
   .status-bar-sub { margin-top:8px; display:flex; gap:14px; flex-wrap:wrap; font-size:9px; color:var(--text-dim); letter-spacing:0.05em; }
   .status-bar-sub b { color:var(--text-primary); font-weight:500; }
-  .app-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; padding:12px; max-width:900px; margin:0 auto; }
+  .app-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; padding:0; }
   @media (min-width:640px) { .app-grid { grid-template-columns:repeat(4,1fr); } }
   .app-icon-btn { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:16px 6px; border:1px solid var(--line); background:var(--bg-panel); color:var(--text-primary); text-align:center; position:relative; }
   .app-icon-btn:active { background:var(--bg-panel-2); }
@@ -142,13 +142,19 @@
   .calc-btn-eq { background:var(--amber); color:var(--bg-void); font-weight:700; }
   .calc-btn-fn { color:var(--cyan); font-size:10.5px; }
 
-  .home-widget { border:1px solid var(--line); background:var(--bg-panel); margin:0 12px 10px; max-width:876px; }
+  .home-widget { border:1px solid var(--line); background:var(--bg-panel); margin:0 0 10px; }
   .home-widget-head { display:flex; justify-content:space-between; align-items:center; padding:8px 11px; border-bottom:1px solid var(--line); background:var(--bg-panel-2); }
   .home-widget-body { padding:12px; }
+  .home-widget .weather-hero { justify-content:center; text-align:center; }
+  .home-widget .stat-grid { text-align:center; }
+  .home-widget .stat { align-items:center; }
   .home-map { height:180px; width:100%; }
   .home-map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9) saturate(0.6); }
   .home-map .leaflet-control-attribution { background: rgba(13,20,24,0.8) !important; color: var(--text-dim) !important; font-size: 8px !important; }
   .home-map .leaflet-control-attribution a { color: var(--text-dim) !important; }
+
+  .section-block { max-width:900px; margin:0 auto; padding:0 12px; }
+  .section-label { padding:14px 2px 8px; color:var(--text-dim); }
 </style>
 </head>
 <body>
@@ -1236,20 +1242,21 @@ function HomeLongshotWidget() {
 }
 
 const APPS = [
-  { id:"weather", label:"WEATHER", icon:ICONS.weather, accent:"var(--cyan)" },
-  { id:"storm", label:"STORM ALERTS", icon:ICONS.storm, accent:"var(--amber)" },
-  { id:"flights", label:"FLIGHT TRACKER", icon:ICONS.flights, accent:"var(--cyan)" },
-  { id:"iss", label:"ISS TRACKER", icon:ICONS.iss, accent:"var(--cyan)" },
-  { id:"longshot", label:"LONGSHOT · MI-02", icon:ICONS.longshot, accent:"var(--green-ok)" },
-  { id:"projects", label:"PROJECT LOG", icon:ICONS.projects, accent:"var(--amber)" },
-  { id:"notes", label:"ENGINEERING NOTES", icon:ICONS.notes, accent:"var(--green-ok)" },
-  { id:"units", label:"UNIT CONVERTER", icon:ICONS.units, accent:"var(--cyan)" },
-  { id:"calc", label:"CALCULATOR", icon:ICONS.calc, accent:"var(--cyan)" },
-  { id:"countdown", label:"MISSION COUNTDOWN", icon:ICONS.countdown, accent:"var(--amber)" },
-  { id:"budget", label:"BUDGET", icon:ICONS.budget, accent:"var(--green-ok)" },
-  { id:"settings", label:"SETTINGS", icon:ICONS.settings, accent:"var(--text-dim)" },
-  { id:"backup", label:"SYSTEM BACKUP", icon:ICONS.backup, accent:"var(--text-dim)" },
+  { id:"weather", label:"WEATHER", icon:ICONS.weather, accent:"var(--cyan)", section:"LIVE FEEDS" },
+  { id:"storm", label:"STORM ALERTS", icon:ICONS.storm, accent:"var(--amber)", section:"LIVE FEEDS" },
+  { id:"flights", label:"FLIGHT TRACKER", icon:ICONS.flights, accent:"var(--cyan)", section:"LIVE FEEDS" },
+  { id:"iss", label:"ISS TRACKER", icon:ICONS.iss, accent:"var(--cyan)", section:"LIVE FEEDS" },
+  { id:"longshot", label:"LONGSHOT · MI-02", icon:ICONS.longshot, accent:"var(--green-ok)", section:"LIVE FEEDS" },
+  { id:"projects", label:"PROJECT LOG", icon:ICONS.projects, accent:"var(--amber)", section:"TOOLS" },
+  { id:"notes", label:"ENGINEERING NOTES", icon:ICONS.notes, accent:"var(--green-ok)", section:"TOOLS" },
+  { id:"units", label:"UNIT CONVERTER", icon:ICONS.units, accent:"var(--cyan)", section:"TOOLS" },
+  { id:"calc", label:"CALCULATOR", icon:ICONS.calc, accent:"var(--cyan)", section:"TOOLS" },
+  { id:"countdown", label:"MISSION COUNTDOWN", icon:ICONS.countdown, accent:"var(--amber)", section:"TOOLS" },
+  { id:"budget", label:"BUDGET", icon:ICONS.budget, accent:"var(--green-ok)", section:"TOOLS" },
+  { id:"settings", label:"SETTINGS", icon:ICONS.settings, accent:"var(--text-dim)", section:"SYSTEM" },
+  { id:"backup", label:"SYSTEM BACKUP", icon:ICONS.backup, accent:"var(--text-dim)", section:"SYSTEM" },
 ];
+const SECTIONS = ["LIVE FEEDS", "TOOLS", "SYSTEM"];
 const LIVE_APP_IDS = ["weather","storm","flights","iss","longshot"];
 
 function MIOS() {
@@ -1295,17 +1302,25 @@ function MIOS() {
           <span>LIVE FEEDS: <b>{liveCount}/{LIVE_APP_IDS.length}</b></span>
         </div>
       </div>
-      <HomeWeatherWidget />
-      <HomeLongshotWidget />
-      <div className="app-grid">
-        {APPS.map(a => (
-          <button key={a.id} className="app-icon-btn" onClick={()=>setScreen(a.id)}>
-            {LIVE_APP_IDS.includes(a.id) && <span className="app-icon-led"><StatusLED status={moduleStatus[a.id]||"pending"} /></span>}
-            <span className="app-icon-glyph" style={{color:a.accent}}>{a.icon}</span>
-            <span className="app-icon-label">{a.label}</span>
-          </button>
-        ))}
+      <div className="section-block">
+        <div className="eyebrow section-label">LIVE DATA</div>
+        <HomeWeatherWidget />
+        <HomeLongshotWidget />
       </div>
+      {SECTIONS.map(sec => (
+        <div className="section-block" key={sec}>
+          <div className="eyebrow section-label">{sec}</div>
+          <div className="app-grid">
+            {APPS.filter(a=>a.section===sec).map(a => (
+              <button key={a.id} className="app-icon-btn" onClick={()=>setScreen(a.id)}>
+                {LIVE_APP_IDS.includes(a.id) && <span className="app-icon-led"><StatusLED status={moduleStatus[a.id]||"pending"} /></span>}
+                <span className="app-icon-glyph" style={{color:a.accent}}>{a.icon}</span>
+                <span className="app-icon-label">{a.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
       <div className="footer">MIOS v0.4 — CEDAR CITY NODE — STANDALONE BUILD</div>
     </>
   ) : renderApp()}
