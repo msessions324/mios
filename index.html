@@ -891,6 +891,24 @@ function CommandPalette({ open, onClose, onNavigate }) {
     rec.start();
   };
 
+  const isLightCommand = (lower) => lower.startsWith("light:") || lower.startsWith("lights:") || lower.startsWith("light ") || lower.startsWith("lights ");
+
+  const pushLightCommand = async (cmd) => {
+    const settings = await loadJSON("mios_settings", {});
+    const user = settings.aioUsername || DEFAULT_AIO_USERNAME;
+    const key = settings.aioKey || DEFAULT_AIO_KEY;
+    const res = await fetchWithTimeout(
+      `https://io.adafruit.com/api/v2/${user}/feeds/mi-pulse-cmd/data`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-AIO-Key": key },
+        body: JSON.stringify({ value: cmd }),
+      },
+      6000
+    );
+    if (!res.ok) throw new Error("HTTP " + res.status);
+  };
+
   const runQuickAction = async (q) => {
     const lower = q.toLowerCase().trim();
     if (lower.startsWith("note:")) {
@@ -901,13 +919,24 @@ function CommandPalette({ open, onClose, onNavigate }) {
       setFlash("Note added.");
       return true;
     }
+    if (isLightCommand(lower)) {
+      const cmd = lower.replace(/^lights?:?\s*/, "").trim();
+      if (!cmd) return false;
+      try {
+        await pushLightCommand(cmd);
+        setFlash(`Lights → ${cmd} (up to 3s to apply)`);
+      } catch (e) {
+        setFlash("Couldn't reach Adafruit IO — check connection.");
+      }
+      return true;
+    }
     return false;
   };
 
   const results = React.useMemo(() => {
     const q = query.toLowerCase().trim();
     if (!q) return APPS.map(a => ({ type:"app", id:a.id, label:a.label }));
-    if (q.startsWith("note:")) {
+    if (q.startsWith("note:") || isLightCommand(q)) {
       return [{ type:"action", label: `Run: ${query}` }];
     }
     const out = [];
@@ -920,7 +949,7 @@ function CommandPalette({ open, onClose, onNavigate }) {
   const selectResult = async (r) => {
     if (r.type === "action") {
       const handled = await runQuickAction(query);
-      if (handled) { setTimeout(onClose, 700); return; }
+      if (handled) { setTimeout(onClose, 900); return; }
     }
     if (r.type === "app" || r.type === "nav") {
       onNavigate(r.id);
@@ -937,7 +966,7 @@ function CommandPalette({ open, onClose, onNavigate }) {
           <input
             ref={inputRef}
             className="palette-input"
-            placeholder='Search, or try "note: ..."'
+            placeholder='Try "lights red" or "note: ..."'
             value={query}
             onChange={e=>setQuery(e.target.value)}
             onKeyDown={e => { if (e.key==="Enter" && results[0]) selectResult(results[0]); if (e.key==="Escape") onClose(); }}
@@ -958,7 +987,7 @@ function CommandPalette({ open, onClose, onNavigate }) {
           {results.length===0 && <div className="muted">No matches.</div>}
         </div>
         <div className="palette-hint">
-          Type to jump anywhere or search notes/projects. "note: idea text" adds a note instantly. {SpeechRecognitionClass ? "Tap the mic to speak instead." : "Voice input isn't supported in this browser (Safari/iOS doesn't support it — works in Chrome)."}
+          Type or say "lights red / green / blue / amber / white / rainbow / off" to control MI-Pulse. "note: idea text" adds a note instantly. {SpeechRecognitionClass ? "Tap the mic to speak." : "Voice input isn't supported in this browser (Safari/iOS doesn't support it — works in Chrome)."}
         </div>
       </div>
     </div>
