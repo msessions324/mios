@@ -155,6 +155,12 @@
 
   .section-block { max-width:900px; margin:0 auto; padding:0 12px; }
   .section-label { padding:14px 2px 8px; color:var(--text-dim); }
+
+  .pulse-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
+  .pulse-btn { display:flex; align-items:center; gap:10px; padding:14px 12px; border:1px solid var(--line); background:var(--bg-panel-2); color:var(--text-primary); font-size:11px; letter-spacing:0.05em; }
+  .pulse-btn:active { background:var(--bg-panel); }
+  .pulse-btn:disabled { opacity:0.5; }
+  .pulse-swatch { width:20px; height:20px; border-radius:50%; background:var(--swatch); border:1px solid rgba(255,255,255,0.25); flex-shrink:0; }
 </style>
 </head>
 <body>
@@ -188,7 +194,7 @@ const WMO = {
 
 const ICONS = {
   weather: "☁", storm: "⚠", flights: "✈", iss: "◎", longshot: "▲",
-  projects: "⚙", notes: "✎", units: "▭", countdown: "◷", calc: "🧮",
+  projects: "⚙", notes: "✎", units: "▭", countdown: "◷", calc: "🧮", pulse: "💡",
   settings: "🛠", backup: "💾", budget: "💰",
   back: "←", refresh: "↻", plus: "+", trash: "✕", check: "✓",
 };
@@ -849,151 +855,6 @@ function BackupApp({ onBack }) {
 }
 
 
-// ---------- COMMAND PALETTE ----------
-function CommandPalette({ open, onClose, onNavigate }) {
-  const [query, setQuery] = useState("");
-  const [listening, setListening] = useState(false);
-  const [notes, setNotes] = useState([]);
-  const [projects, setProjects] = useState([]);
-  const [flash, setFlash] = useState("");
-  const inputRef = useRef(null);
-  const recognitionRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return;
-    setQuery(""); setFlash("");
-    Promise.all([
-      loadJSON("mios_notes", []),
-      loadJSON("mios_projects", []),
-    ]).then(([n, p]) => {
-      setNotes(n); setProjects(p);
-    });
-    setTimeout(() => inputRef.current?.focus(), 50);
-  }, [open]);
-
-  const SpeechRecognitionClass = typeof window !== "undefined" ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
-
-  const startVoice = () => {
-    if (!SpeechRecognitionClass) return;
-    const rec = new SpeechRecognitionClass();
-    rec.lang = "en-US";
-    rec.interimResults = false;
-    rec.maxAlternatives = 1;
-    rec.onresult = (e) => {
-      const text = e.results[0][0].transcript;
-      setQuery(text);
-      setListening(false);
-    };
-    rec.onerror = () => setListening(false);
-    rec.onend = () => setListening(false);
-    recognitionRef.current = rec;
-    setListening(true);
-    rec.start();
-  };
-
-  const isLightCommand = (lower) => lower.startsWith("light:") || lower.startsWith("lights:") || lower.startsWith("light ") || lower.startsWith("lights ");
-
-  const pushLightCommand = async (cmd) => {
-    const settings = await loadJSON("mios_settings", {});
-    const user = settings.aioUsername || DEFAULT_AIO_USERNAME;
-    const key = settings.aioKey || DEFAULT_AIO_KEY;
-    const res = await fetchWithTimeout(
-      `https://io.adafruit.com/api/v2/${user}/feeds/mi-pulse-cmd/data`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-AIO-Key": key },
-        body: JSON.stringify({ value: cmd }),
-      },
-      6000
-    );
-    if (!res.ok) throw new Error("HTTP " + res.status);
-  };
-
-  const runQuickAction = async (q) => {
-    const lower = q.toLowerCase().trim();
-    if (lower.startsWith("note:")) {
-      const text = q.slice(q.indexOf(":")+1).trim();
-      if (!text) return false;
-      const existing = await loadJSON("mios_notes", []);
-      await saveJSON("mios_notes", [{ id:"n"+Date.now(), text, ts:new Date().toISOString() }, ...existing]);
-      setFlash("Note added.");
-      return true;
-    }
-    if (isLightCommand(lower)) {
-      const cmd = lower.replace(/^lights?:?\s*/, "").trim();
-      if (!cmd) return false;
-      try {
-        await pushLightCommand(cmd);
-        setFlash(`Lights → ${cmd} (up to 3s to apply)`);
-      } catch (e) {
-        setFlash("Couldn't reach Adafruit IO — check connection.");
-      }
-      return true;
-    }
-    return false;
-  };
-
-  const results = React.useMemo(() => {
-    const q = query.toLowerCase().trim();
-    if (!q) return APPS.map(a => ({ type:"app", id:a.id, label:a.label }));
-    if (q.startsWith("note:") || isLightCommand(q)) {
-      return [{ type:"action", label: `Run: ${query}` }];
-    }
-    const out = [];
-    APPS.forEach(a => { if (a.label.toLowerCase().includes(q)) out.push({ type:"app", id:a.id, label:a.label }); });
-    notes.forEach(n => { if (n.text.toLowerCase().includes(q)) out.push({ type:"nav", id:"notes", label: n.text.slice(0,60), tag:"NOTE" }); });
-    projects.forEach(p => { if (p.name.toLowerCase().includes(q)) out.push({ type:"nav", id:"projects", label: p.name, tag:"PROJECT" }); });
-    return out.slice(0, 12);
-  }, [query, notes, projects]);
-
-  const selectResult = async (r) => {
-    if (r.type === "action") {
-      const handled = await runQuickAction(query);
-      if (handled) { setTimeout(onClose, 900); return; }
-    }
-    if (r.type === "app" || r.type === "nav") {
-      onNavigate(r.id);
-      onClose();
-    }
-  };
-
-  if (!open) return null;
-  return (
-    <div className="palette-overlay" onClick={onClose}>
-      <div className="palette-box" onClick={e=>e.stopPropagation()}>
-        <div className="palette-input-row">
-          <span style={{color:"var(--amber)"}}>{ICONS.longshot}</span>
-          <input
-            ref={inputRef}
-            className="palette-input"
-            placeholder='Try "lights red" or "note: ..."'
-            value={query}
-            onChange={e=>setQuery(e.target.value)}
-            onKeyDown={e => { if (e.key==="Enter" && results[0]) selectResult(results[0]); if (e.key==="Escape") onClose(); }}
-          />
-          {SpeechRecognitionClass && (
-            <button className={`palette-mic ${listening?"listening":""}`} onClick={startVoice}>{listening ? "●" : "🎤"}</button>
-          )}
-          <button className="palette-close" onClick={onClose}>✕</button>
-        </div>
-        {flash && <div className="nominal" style={{marginTop:8}}>{flash}</div>}
-        <div className="palette-results">
-          {results.map((r, i) => (
-            <div className="palette-result" key={i} onClick={()=>selectResult(r)}>
-              <span className="palette-result-label">{r.label}</span>
-              {r.tag && <span className="palette-result-tag">{r.tag}</span>}
-            </div>
-          ))}
-          {results.length===0 && <div className="muted">No matches.</div>}
-        </div>
-        <div className="palette-hint">
-          Type or say "lights red / green / blue / amber / white / rainbow / off" to control MI-Pulse. "note: idea text" adds a note instantly. {SpeechRecognitionClass ? "Tap the mic to speak." : "Voice input isn't supported in this browser (Safari/iOS doesn't support it — works in Chrome)."}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ---------- BUDGET ----------
 function monthKey(d = new Date()) { return d.toISOString().slice(0,7); }
 function BudgetApp({ onBack }) {
@@ -1270,12 +1131,74 @@ function HomeLongshotWidget() {
   );
 }
 
+// ---------- PULSE (device control) ----------
+async function pushLightCommand(cmd) {
+  const settings = await loadJSON("mios_settings", {});
+  const user = settings.aioUsername || DEFAULT_AIO_USERNAME;
+  const key = settings.aioKey || DEFAULT_AIO_KEY;
+  const res = await fetchWithTimeout(
+    `https://io.adafruit.com/api/v2/${user}/feeds/mi-pulse-cmd/data`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-AIO-Key": key },
+      body: JSON.stringify({ value: cmd }),
+    },
+    6000
+  );
+  if (!res.ok) throw new Error("HTTP " + res.status);
+}
+
+const PULSE_COLORS = [
+  { cmd: "red", label: "RED", swatch: "#ff4d4f" },
+  { cmd: "green", label: "GREEN", swatch: "#4fd88c" },
+  { cmd: "blue", label: "BLUE", swatch: "#3f8cff" },
+  { cmd: "amber", label: "AMBER", swatch: "#ffb400" },
+  { cmd: "white", label: "WHITE", swatch: "#f2f2f2" },
+];
+
+function PulseApp({ onBack }) {
+  const [sending, setSending] = useState(null);
+  const [flash, setFlash] = useState("");
+
+  const send = async (cmd, label) => {
+    setSending(cmd);
+    setFlash("");
+    try {
+      await pushLightCommand(cmd);
+      setFlash(`${label} sent — up to 3s to apply.`);
+    } catch (e) {
+      setFlash("Couldn't reach Adafruit IO — check your connection.");
+    }
+    setSending(null);
+  };
+
+  return (
+    <AppShell title="MI-PULSE · LED CONTROL" icon={ICONS.pulse} onBack={onBack}>
+      <div className="muted small" style={{marginBottom:14}}>Tap a color to command the ESP32 LED node directly. It polls every 3 seconds, so there's a short delay — that's normal.</div>
+      <div className="pulse-grid">
+        {PULSE_COLORS.map(c => (
+          <button key={c.cmd} className="pulse-btn" style={{"--swatch":c.swatch}} disabled={sending===c.cmd} onClick={()=>send(c.cmd, c.label)}>
+            <span className="pulse-swatch" />
+            <span>{sending===c.cmd ? "SENDING…" : c.label}</span>
+          </button>
+        ))}
+      </div>
+      <div style={{display:"flex", gap:8, marginTop:10}}>
+        <button className="full-btn" style={{marginTop:0, borderColor:"var(--cyan)", color:"var(--cyan)"}} disabled={sending==="rainbow"} onClick={()=>send("rainbow","RAINBOW")}>{sending==="rainbow" ? "SENDING…" : "RAINBOW"}</button>
+        <button className="full-btn" style={{marginTop:0, borderColor:"var(--text-dim)", color:"var(--text-dim)"}} disabled={sending==="off"} onClick={()=>send("off","OFF")}>{sending==="off" ? "SENDING…" : "OFF"}</button>
+      </div>
+      {flash && <div className="nominal" style={{marginTop:14}}>{flash}</div>}
+    </AppShell>
+  );
+}
+
 const APPS = [
   { id:"weather", label:"WEATHER", icon:ICONS.weather, accent:"var(--cyan)", section:"LIVE FEEDS" },
   { id:"storm", label:"STORM ALERTS", icon:ICONS.storm, accent:"var(--amber)", section:"LIVE FEEDS" },
   { id:"flights", label:"FLIGHT TRACKER", icon:ICONS.flights, accent:"var(--cyan)", section:"LIVE FEEDS" },
   { id:"iss", label:"ISS TRACKER", icon:ICONS.iss, accent:"var(--cyan)", section:"LIVE FEEDS" },
   { id:"longshot", label:"LONGSHOT · MI-02", icon:ICONS.longshot, accent:"var(--green-ok)", section:"LIVE FEEDS" },
+  { id:"pulse", label:"MI-PULSE", icon:ICONS.pulse, accent:"var(--amber)", section:"DEVICES" },
   { id:"projects", label:"PROJECT LOG", icon:ICONS.projects, accent:"var(--amber)", section:"TOOLS" },
   { id:"notes", label:"ENGINEERING NOTES", icon:ICONS.notes, accent:"var(--green-ok)", section:"TOOLS" },
   { id:"units", label:"UNIT CONVERTER", icon:ICONS.units, accent:"var(--cyan)", section:"TOOLS" },
@@ -1285,13 +1208,12 @@ const APPS = [
   { id:"settings", label:"SETTINGS", icon:ICONS.settings, accent:"var(--text-dim)", section:"SYSTEM" },
   { id:"backup", label:"SYSTEM BACKUP", icon:ICONS.backup, accent:"var(--text-dim)", section:"SYSTEM" },
 ];
-const SECTIONS = ["LIVE FEEDS", "TOOLS", "SYSTEM"];
+const SECTIONS = ["LIVE FEEDS", "DEVICES", "TOOLS", "SYSTEM"];
 const LIVE_APP_IDS = ["weather","storm","flights","iss","longshot"];
 
 function MIOS() {
   const [screen, setScreen] = useState("home");
   const [moduleStatus, setModuleStatus] = useState({});
-  const [paletteOpen, setPaletteOpen] = useState(false);
   const now = useClock();
   const setStatusFor = (id) => (s) => setModuleStatus(prev => ({...prev, [id]: s}));
   const localTime = now.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",hour12:false});
@@ -1311,6 +1233,7 @@ function MIOS() {
       case "calc": return <CalculatorApp onBack={goBack} />;
       case "countdown": return <CountdownApp onBack={goBack} />;
       case "budget": return <BudgetApp onBack={goBack} />;
+      case "pulse": return <PulseApp onBack={goBack} />;
       case "settings": return <SettingsApp onBack={goBack} />;
       case "backup": return <BackupApp onBack={goBack} />;
       default: return null;
@@ -1353,8 +1276,6 @@ function MIOS() {
       <div className="footer">MIOS v0.4 — CEDAR CITY NODE — STANDALONE BUILD</div>
     </>
   ) : renderApp()}
-    <button className="fab" onClick={()=>setPaletteOpen(true)}>{ICONS.longshot}</button>
-    <CommandPalette open={paletteOpen} onClose={()=>setPaletteOpen(false)} onNavigate={setScreen} />
     </>
   );
 }
