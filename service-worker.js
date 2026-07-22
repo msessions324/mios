@@ -1,4 +1,4 @@
-const CACHE_NAME = "mios-shell-v10";
+const CACHE_NAME = "mios-shell-v11";
 const SHELL_FILES = [
   "./",
   "./index.html",

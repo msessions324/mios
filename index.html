@@ -1010,16 +1010,43 @@ function CalculatorApp({ onBack }) {
 function HomeWeatherWidget() {
   const [data, setData] = useState(null);
   const [status, setStatus] = useState("pending");
+  const seenAlertIds = useRef(new Set());
+  const firstStormCheck = useRef(true);
+
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const pollWeather = async () => {
       try {
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&timezone=America%2FDenver&forecast_days=1`;
         const json = await fetchWithRetry(url, {}, 2, 6000);
         if (!cancelled) { setData(json); setStatus("ok"); }
       } catch (e) { if (!cancelled) setStatus("down"); }
-    })();
-    return () => { cancelled = true; };
+    };
+    const pollStorm = async () => {
+      try {
+        const url = `https://api.weather.gov/alerts/active?point=${LAT},${LON}`;
+        const json = await fetchWithRetry(url, {}, 1, 6000);
+        const features = json.features || [];
+        // don't flash for alerts already active before MIOS was opened — only genuinely new ones
+        if (firstStormCheck.current) {
+          features.forEach(f => seenAlertIds.current.add(f.id));
+          firstStormCheck.current = false;
+          return;
+        }
+        for (const f of features) {
+          if (seenAlertIds.current.has(f.id)) continue;
+          seenAlertIds.current.add(f.id);
+          const sev = (f.properties.severity || "").toLowerCase();
+          const isSevere = sev === "extreme" || sev === "severe";
+          pushLightCommand(isSevere ? "flash:ff0000:6" : "flash:ff8c00:4").catch(() => {});
+        }
+      } catch (e) { /* storm feed hiccup — don't affect weather display */ }
+    };
+    pollWeather();
+    pollStorm();
+    const wId = setInterval(pollWeather, 10 * 60 * 1000);
+    const sId = setInterval(pollStorm, 5 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(wId); clearInterval(sId); };
   }, []);
   const c = data?.current, d = data?.daily;
   return (
@@ -1077,6 +1104,7 @@ function HomeLongshotWidget() {
   const [tempHistory, setTempHistory] = useState(null);
   const [status, setStatus] = useState("pending");
   const prevStatusRef = useRef("pending");
+  const weakSignalRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1090,9 +1118,18 @@ function HomeLongshotWidget() {
         ));
         const [temp, pres, lat, lon, rssi] = results;
         if (cancelled) return;
-        setReadings({ temp: parseFloat(temp.value), pres: parseFloat(pres.value), lat: parseFloat(lat.value), lon: parseFloat(lon.value), rssi: parseFloat(rssi.value) });
+        const rssiVal = parseFloat(rssi.value);
+        setReadings({ temp: parseFloat(temp.value), pres: parseFloat(pres.value), lat: parseFloat(lat.value), lon: parseFloat(lon.value), rssi: rssiVal });
         setStatus("ok");
         prevStatusRef.current = "ok";
+
+        // weak-signal warning — distinct from full link loss, fires once when crossing the threshold
+        const isWeak = rssiVal < -100;
+        if (isWeak && !weakSignalRef.current) {
+          pushLightCommand("flash:ff8c00:3").catch(() => {});
+        }
+        weakSignalRef.current = isWeak;
+
         try {
           const tempH = await fetchWithRetry(`https://io.adafruit.com/api/v2/${user}/feeds/longshot-temp/data?limit=20&x-aio-key=${key}`, {}, 1, 6000);
           if (!cancelled) setTempHistory(tempH.map(d=>parseFloat(d.value)).reverse());
@@ -1172,7 +1209,7 @@ function PulseApp({ onBack }) {
   const [flashMsg, setFlashMsg] = useState("");
   const [on, setOn] = useState(true);
   const [color, setColor] = useState("#ff8c00");
-  const [brightness, setBrightness] = useState(90);
+  const [brightness, setBrightness] = useState(30);
 
   const send = async (cmd, label) => {
     setSending(label);
@@ -1229,7 +1266,8 @@ function PulseApp({ onBack }) {
       </div>
 
       <div className="eyebrow" style={{fontSize:11, marginBottom:8}}>BRIGHTNESS — {brightness}/255</div>
-      <input type="range" min="0" max="255" value={brightness} onChange={e=>setBrightness(parseInt(e.target.value))} onMouseUp={e=>applyBrightness(parseInt(e.target.value))} onTouchEnd={e=>applyBrightness(brightness)} style={{width:"100%", marginBottom:16}} />
+      <input type="range" min="0" max="30" value={brightness} onChange={e=>setBrightness(parseInt(e.target.value))} onMouseUp={e=>applyBrightness(parseInt(e.target.value))} onTouchEnd={e=>applyBrightness(brightness)} style={{width:"100%", marginBottom:6}} />
+      <div className="muted small" style={{marginBottom:16}}>Capped at 30/255 until you've got a dedicated 5V supply wired to the strip — firmware enforces this too, not just this slider.</div>
 
       <div style={{display:"flex", gap:8, marginBottom:16}}>
         <button className="full-btn" style={{marginTop:0, borderColor:"var(--cyan)", color:"var(--cyan)"}} disabled={sending==="RAINBOW"} onClick={()=>send("rainbow","RAINBOW")}>{sending==="RAINBOW" ? "SENDING…" : "RAINBOW"}</button>
