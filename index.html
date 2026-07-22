@@ -1076,10 +1076,11 @@ function HomeLongshotWidget() {
   const [readings, setReadings] = useState(null);
   const [tempHistory, setTempHistory] = useState(null);
   const [status, setStatus] = useState("pending");
+  const prevStatusRef = useRef("pending");
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const poll = async () => {
       try {
         const settings = await loadJSON("mios_settings", {});
         const user = settings.aioUsername || DEFAULT_AIO_USERNAME;
@@ -1091,15 +1092,25 @@ function HomeLongshotWidget() {
         if (cancelled) return;
         setReadings({ temp: parseFloat(temp.value), pres: parseFloat(pres.value), lat: parseFloat(lat.value), lon: parseFloat(lon.value), rssi: parseFloat(rssi.value) });
         setStatus("ok");
+        prevStatusRef.current = "ok";
         try {
           const tempH = await fetchWithRetry(`https://io.adafruit.com/api/v2/${user}/feeds/longshot-temp/data?limit=20&x-aio-key=${key}`, {}, 1, 6000);
           if (!cancelled) setTempHistory(tempH.map(d=>parseFloat(d.value)).reverse());
         } catch (e) {}
       } catch (e) {
-        if (!cancelled) setStatus("down");
+        if (cancelled) return;
+        const justLostLink = prevStatusRef.current !== "down";
+        setStatus("down");
+        prevStatusRef.current = "down";
+        if (justLostLink) {
+          // one-time alert flash — only fires on the transition into "down," not every retry
+          pushLightCommand("flash:ff0000:3").catch(() => {});
+        }
       }
-    })();
-    return () => { cancelled = true; };
+    };
+    poll();
+    const id = setInterval(poll, 45000);
+    return () => { cancelled = true; clearInterval(id); };
   }, []);
 
   const hasFix = readings && !(readings.lat===0 && readings.lon===0);
@@ -1149,45 +1160,87 @@ async function pushLightCommand(cmd) {
 }
 
 const PULSE_COLORS = [
-  { cmd: "red", label: "RED", swatch: "#ff4d4f" },
-  { cmd: "green", label: "GREEN", swatch: "#4fd88c" },
-  { cmd: "blue", label: "BLUE", swatch: "#3f8cff" },
-  { cmd: "amber", label: "AMBER", swatch: "#ffb400" },
-  { cmd: "white", label: "WHITE", swatch: "#f2f2f2" },
+  { hex: "ff0000", label: "RED", swatch: "#ff4d4f" },
+  { hex: "00ff00", label: "GREEN", swatch: "#4fd88c" },
+  { hex: "0000ff", label: "BLUE", swatch: "#3f8cff" },
+  { hex: "ff8c00", label: "AMBER", swatch: "#ffb400" },
+  { hex: "ffffff", label: "WHITE", swatch: "#f2f2f2" },
 ];
 
 function PulseApp({ onBack }) {
   const [sending, setSending] = useState(null);
-  const [flash, setFlash] = useState("");
+  const [flashMsg, setFlashMsg] = useState("");
+  const [on, setOn] = useState(true);
+  const [color, setColor] = useState("#ff8c00");
+  const [brightness, setBrightness] = useState(90);
 
   const send = async (cmd, label) => {
-    setSending(cmd);
-    setFlash("");
+    setSending(label);
+    setFlashMsg("");
     try {
       await pushLightCommand(cmd);
-      setFlash(`${label} sent — up to 3s to apply.`);
+      setFlashMsg(`${label} sent — up to 3s to apply.`);
     } catch (e) {
-      setFlash("Couldn't reach Adafruit IO — check your connection.");
+      setFlashMsg("Couldn't reach Adafruit IO — check your connection.");
     }
     setSending(null);
   };
 
+  const applyColor = (hex) => {
+    setColor(hex);
+    setOn(true);
+    send(`color:${hex.replace("#","")}`, "COLOR");
+  };
+
+  const toggleOn = () => {
+    const next = !on;
+    setOn(next);
+    send(next ? "on" : "off", next ? "ON" : "OFF");
+  };
+
+  const applyBrightness = (val) => {
+    setBrightness(val);
+    send(`bright:${val}`, "BRIGHTNESS");
+  };
+
   return (
     <AppShell title="MI-PULSE · LED CONTROL" icon={ICONS.pulse} onBack={onBack}>
-      <div className="muted small" style={{marginBottom:14}}>Tap a color to command the ESP32 LED node directly. It polls every 3 seconds, so there's a short delay — that's normal.</div>
-      <div className="pulse-grid">
+      <div className="muted small" style={{marginBottom:14}}>197-LED strip. Idle mode holds whatever you set here, like a normal strip. Polls every 3s, so there's a short delay — that's normal.</div>
+
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14}}>
+        <span className="eyebrow" style={{fontSize:11}}>POWER</span>
+        <button className="full-btn" style={{marginTop:0, width:110, borderColor: on?"var(--green-ok)":"var(--text-dim)", color: on?"var(--green-ok)":"var(--text-dim)"}} onClick={toggleOn}>
+          {sending==="ON"||sending==="OFF" ? "…" : (on ? "ON" : "OFF")}
+        </button>
+      </div>
+
+      <div className="eyebrow" style={{fontSize:11, marginBottom:8}}>COLOR</div>
+      <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:14}}>
+        <input type="color" value={color} onChange={e=>applyColor(e.target.value)} style={{width:52, height:40, border:"1px solid var(--line)", background:"none", padding:0}} />
+        <span className="muted small">Tap to pick any color — applies instantly.</span>
+      </div>
+      <div className="pulse-grid" style={{marginBottom:16}}>
         {PULSE_COLORS.map(c => (
-          <button key={c.cmd} className="pulse-btn" style={{"--swatch":c.swatch}} disabled={sending===c.cmd} onClick={()=>send(c.cmd, c.label)}>
+          <button key={c.hex} className="pulse-btn" style={{"--swatch":c.swatch}} disabled={sending==="COLOR"} onClick={()=>applyColor("#"+c.hex)}>
             <span className="pulse-swatch" />
-            <span>{sending===c.cmd ? "SENDING…" : c.label}</span>
+            <span>{c.label}</span>
           </button>
         ))}
       </div>
-      <div style={{display:"flex", gap:8, marginTop:10}}>
-        <button className="full-btn" style={{marginTop:0, borderColor:"var(--cyan)", color:"var(--cyan)"}} disabled={sending==="rainbow"} onClick={()=>send("rainbow","RAINBOW")}>{sending==="rainbow" ? "SENDING…" : "RAINBOW"}</button>
-        <button className="full-btn" style={{marginTop:0, borderColor:"var(--text-dim)", color:"var(--text-dim)"}} disabled={sending==="off"} onClick={()=>send("off","OFF")}>{sending==="off" ? "SENDING…" : "OFF"}</button>
+
+      <div className="eyebrow" style={{fontSize:11, marginBottom:8}}>BRIGHTNESS — {brightness}/255</div>
+      <input type="range" min="0" max="255" value={brightness} onChange={e=>setBrightness(parseInt(e.target.value))} onMouseUp={e=>applyBrightness(parseInt(e.target.value))} onTouchEnd={e=>applyBrightness(brightness)} style={{width:"100%", marginBottom:16}} />
+
+      <div style={{display:"flex", gap:8, marginBottom:16}}>
+        <button className="full-btn" style={{marginTop:0, borderColor:"var(--cyan)", color:"var(--cyan)"}} disabled={sending==="RAINBOW"} onClick={()=>send("rainbow","RAINBOW")}>{sending==="RAINBOW" ? "SENDING…" : "RAINBOW"}</button>
+        <button className="full-btn" style={{marginTop:0, borderColor:"var(--red-alert)", color:"var(--red-alert)"}} disabled={sending==="TEST ALERT"} onClick={()=>send("flash:ff0000:3","TEST ALERT")}>{sending==="TEST ALERT" ? "SENDING…" : "TEST ALERT FLASH"}</button>
       </div>
-      {flash && <div className="nominal" style={{marginTop:14}}>{flash}</div>}
+
+      <div className="muted small" style={{lineHeight:1.6}}>
+        Longshot automatically flashes the strip red for a few seconds if the telemetry link drops — happens on top of whatever idle color/state you have set, then reverts back automatically. Only works while MIOS is open in a tab (no background server behind this).
+      </div>
+
+      {flashMsg && <div className="nominal" style={{marginTop:14}}>{flashMsg}</div>}
     </AppShell>
   );
 }
