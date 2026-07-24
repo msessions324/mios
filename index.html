@@ -195,7 +195,7 @@ const WMO = {
 const ICONS = {
   weather: "☁", storm: "⚠", flights: "✈", iss: "◎", longshot: "▲",
   projects: "⚙", notes: "✎", units: "▭", countdown: "◷", calc: "🧮", pulse: "💡",
-  settings: "🛠", backup: "💾", budget: "💰",
+  settings: "🛠", backup: "💾", budget: "💰", log: "📜",
   back: "←", refresh: "↻", plus: "+", trash: "✕", check: "✓",
 };
 
@@ -791,7 +791,7 @@ function SettingsApp({ onBack }) {
 }
 
 // ---------- BACKUP ----------
-const BACKUP_KEYS = ["mios_projects", "mios_notes", "mios_countdown", "mios_budget", "mios_settings"];
+const BACKUP_KEYS = ["mios_projects", "mios_notes", "mios_countdown", "mios_budget", "mios_settings", "mios_log"];
 function BackupApp({ onBack }) {
   const [msg, setMsg] = useState("");
   const fileInputRef = useRef(null);
@@ -1039,6 +1039,7 @@ function HomeWeatherWidget() {
           const sev = (f.properties.severity || "").toLowerCase();
           const isSevere = sev === "extreme" || sev === "severe";
           pushLightCommand(isSevere ? "flash:ff0000:6" : "flash:ff8c00:4").catch(() => {});
+          logEvent("STORM", `${f.properties.event}${isSevere ? " (SEVERE)" : ""}`, isSevere ? "var(--red-alert)" : "var(--amber)");
         }
       } catch (e) { /* storm feed hiccup — don't affect weather display */ }
     };
@@ -1127,6 +1128,7 @@ function HomeLongshotWidget() {
         const isWeak = rssiVal < -100;
         if (isWeak && !weakSignalRef.current) {
           pushLightCommand("flash:ff8c00:3").catch(() => {});
+          logEvent("LONGSHOT", `Weak signal warning — RSSI ${rssiVal.toFixed(0)} dBm`, "var(--amber)");
         }
         weakSignalRef.current = isWeak;
 
@@ -1142,6 +1144,7 @@ function HomeLongshotWidget() {
         if (justLostLink) {
           // one-time alert flash — only fires on the transition into "down," not every retry
           pushLightCommand("flash:ff0000:3").catch(() => {});
+          logEvent("LONGSHOT", "Telemetry link lost", "var(--red-alert)");
         }
       }
     };
@@ -1179,7 +1182,81 @@ function HomeLongshotWidget() {
   );
 }
 
+// ---------- BACKGROUND WATCHERS (no UI — pure sense-to-react) ----------
+function FlightWatcher() {
+  const seenIcao = useRef(new Set());
+  const firstCheck = useRef(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const url = `https://opensky-network.org/api/states/all?lamin=${BBOX.lamin}&lomin=${BBOX.lomin}&lamax=${BBOX.lamax}&lomax=${BBOX.lomax}`;
+        const json = await fetchWithRetry(url, {}, 1, 7000);
+        if (cancelled) return;
+        const icaos = (json.states||[]).filter(s=>s[5]!=null&&s[6]!=null&&!s[8]).map(s=>s[0]);
+        if (firstCheck.current) {
+          icaos.forEach(id => seenIcao.current.add(id));
+          firstCheck.current = false;
+          return;
+        }
+        const newOnes = icaos.filter(id => !seenIcao.current.has(id));
+        icaos.forEach(id => seenIcao.current.add(id));
+        seenIcao.current.forEach(id => { if (!icaos.includes(id)) seenIcao.current.delete(id); });
+        if (newOnes.length > 0) {
+          pushLightCommand("flash:00e5ff:2").catch(() => {});
+          logEvent("FLIGHT", `${newOnes.length} new aircraft entered 65nm range`, "var(--cyan)");
+        }
+      } catch (e) { /* silent — this is a background nicety, not a critical feed */ }
+    };
+    poll();
+    const id = setInterval(poll, 60000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  return null;
+}
+
+function IssWatcher() {
+  const lastAlertAt = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const json = await fetchWithRetry("https://api.wheretheiss.at/v1/satellites/25544", {}, 1, 6000);
+        if (cancelled) return;
+        const distKm = nmDistance(LAT, LON, json.latitude, json.longitude) * 1.852;
+        const issSunlit = json.visibility === "daylight";
+        const localHour = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/Denver", hour: "2-digit", hour12: false }));
+        const probablyDark = localHour < 6 || localHour >= 21;
+        const inRange = distKm < 1200;
+        const cooldownOk = Date.now() - lastAlertAt.current > 10 * 60 * 1000;
+        if (issSunlit && probablyDark && inRange && cooldownOk) {
+          lastAlertAt.current = Date.now();
+          pushLightCommand("flash:ffffff:4").catch(() => {});
+          logEvent("ISS", `Possible visible pass — ${Math.round(distKm)}km away`, "var(--text-primary)");
+        }
+      } catch (e) { /* silent */ }
+    };
+    poll();
+    const id = setInterval(poll, 2 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  return null;
+}
+
 // ---------- PULSE (device control) ----------
+async function logEvent(type, message, color) {
+  try {
+    const existing = await loadJSON("mios_log", []);
+    const entry = { id: "l"+Date.now()+Math.random().toString(36).slice(2,6), type, message, color: color || "var(--text-primary)", ts: new Date().toISOString() };
+    const next = [entry, ...existing].slice(0, 100);
+    await saveJSON("mios_log", next);
+  } catch (e) {}
+}
+
 async function pushLightCommand(cmd) {
   const settings = await loadJSON("mios_settings", {});
   const user = settings.aioUsername || DEFAULT_AIO_USERNAME;
@@ -1283,6 +1360,44 @@ function PulseApp({ onBack }) {
   );
 }
 
+// ---------- SYSTEM LOG ----------
+function SystemLogApp({ onBack }) {
+  const [entries, setEntries] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+
+  const load = useCallback(() => {
+    loadJSON("mios_log", []).then(v => { setEntries(v); setLoaded(true); });
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const clearLog = async () => {
+    if (!window.confirm("Clear the entire system log? This can't be undone.")) return;
+    await saveJSON("mios_log", []);
+    setEntries([]);
+  };
+
+  return (
+    <AppShell title="SYSTEM LOG" icon={ICONS.log} onBack={onBack} onRefresh={load}>
+      <div className="muted small" style={{marginBottom:14}}>Every automatic alert MIOS has fired — storm alerts, Longshot link/signal events, new aircraft, ISS passes. Keeps the last 100.</div>
+      {!loaded ? <div className="muted">LOADING…</div> : <>
+        {entries.length === 0 && <div className="muted">NO EVENTS LOGGED YET</div>}
+        <div className="note-list" style={{marginTop:0}}>
+          {entries.map(e => (
+            <div className="note-item" key={e.id} style={{borderLeft:`2px solid ${e.color}`}}>
+              <div style={{display:"flex", justifyContent:"space-between", marginBottom:3}}>
+                <span className="alert-tag" style={{background:"transparent", border:`1px solid ${e.color}`, color:e.color}}>{e.type}</span>
+                <span className="muted small">{new Date(e.ts).toLocaleString("en-US",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</span>
+              </div>
+              <div className="note-text" style={{marginBottom:0}}>{e.message}</div>
+            </div>
+          ))}
+        </div>
+        {entries.length > 0 && <button className="full-btn" onClick={clearLog} style={{marginTop:14, borderColor:"var(--red-alert)", color:"var(--red-alert)"}}>CLEAR LOG</button>}
+      </>}
+    </AppShell>
+  );
+}
+
 const APPS = [
   { id:"weather", label:"WEATHER", icon:ICONS.weather, accent:"var(--cyan)", section:"LIVE FEEDS" },
   { id:"storm", label:"STORM ALERTS", icon:ICONS.storm, accent:"var(--amber)", section:"LIVE FEEDS" },
@@ -1298,6 +1413,7 @@ const APPS = [
   { id:"budget", label:"BUDGET", icon:ICONS.budget, accent:"var(--green-ok)", section:"TOOLS" },
   { id:"settings", label:"SETTINGS", icon:ICONS.settings, accent:"var(--text-dim)", section:"SYSTEM" },
   { id:"backup", label:"SYSTEM BACKUP", icon:ICONS.backup, accent:"var(--text-dim)", section:"SYSTEM" },
+  { id:"log", label:"SYSTEM LOG", icon:ICONS.log, accent:"var(--text-dim)", section:"SYSTEM" },
 ];
 const SECTIONS = ["LIVE FEEDS", "DEVICES", "TOOLS", "SYSTEM"];
 const LIVE_APP_IDS = ["weather","storm","flights","iss","longshot"];
@@ -1327,6 +1443,7 @@ function MIOS() {
       case "pulse": return <PulseApp onBack={goBack} />;
       case "settings": return <SettingsApp onBack={goBack} />;
       case "backup": return <BackupApp onBack={goBack} />;
+      case "log": return <SystemLogApp onBack={goBack} />;
       default: return null;
     }
   };
@@ -1349,6 +1466,8 @@ function MIOS() {
         <div className="eyebrow section-label">LIVE DATA</div>
         <HomeWeatherWidget />
         <HomeLongshotWidget />
+        <FlightWatcher />
+        <IssWatcher />
       </div>
       {SECTIONS.map(sec => (
         <div className="section-block" key={sec}>
