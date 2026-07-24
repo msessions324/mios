@@ -161,6 +161,12 @@
   .pulse-btn:active { background:var(--bg-panel); }
   .pulse-btn:disabled { opacity:0.5; }
   .pulse-swatch { width:20px; height:20px; border-radius:50%; background:var(--swatch); border:1px solid rgba(255,255,255,0.25); flex-shrink:0; }
+
+  .core-msg { margin-bottom:12px; }
+  .core-msg-role { font-size:8px; letter-spacing:0.08em; color:var(--text-dim); margin-bottom:3px; }
+  .core-msg-user .core-msg-role { color:var(--cyan); }
+  .core-msg-assistant .core-msg-role { color:var(--amber); }
+  .core-msg-text { font-size:12px; line-height:1.6; color:var(--text-primary); white-space:pre-wrap; }
 </style>
 </head>
 <body>
@@ -195,7 +201,7 @@ const WMO = {
 const ICONS = {
   weather: "☁", storm: "⚠", flights: "✈", iss: "◎", longshot: "▲",
   projects: "⚙", notes: "✎", units: "▭", countdown: "◷", calc: "🧮", pulse: "💡",
-  settings: "🛠", backup: "💾", budget: "💰", log: "📜",
+  settings: "🛠", backup: "💾", budget: "💰", log: "📜", core: "🧠",
   back: "←", refresh: "↻", plus: "+", trash: "✕", check: "✓",
 };
 
@@ -1398,12 +1404,124 @@ function SystemLogApp({ onBack }) {
   );
 }
 
+// ---------- CORE ----------
+function CoreApp({ onBack }) {
+  const [messages, setMessages] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [errMsg, setErrMsg] = useState("");
+  const scrollRef = useRef(null);
+  const recognitionRef = useRef(null);
+
+  useEffect(() => {
+    loadJSON("mios_core_history", []).then(v => { setMessages(v); setLoaded(true); });
+  }, []);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages, busy]);
+
+  const persist = (next) => { setMessages(next); saveJSON("mios_core_history", next.slice(-30)); };
+
+  const send = async (text) => {
+    const content = text.trim();
+    if (!content || busy) return;
+    setErrMsg("");
+    const next = [...messages, { role: "user", content }];
+    persist(next);
+    setInput("");
+    setBusy(true);
+    try {
+      const settings = await loadJSON("mios_settings", {});
+      const res = await fetchWithTimeout(
+        "/.netlify/functions/core",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: next.map(m => ({ role: m.role, content: m.content })),
+            aioUsername: settings.aioUsername || DEFAULT_AIO_USERNAME,
+            aioKey: settings.aioKey || DEFAULT_AIO_KEY,
+          }),
+        },
+        30000
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "CORE request failed.");
+      persist([...next, { role: "assistant", content: data.reply || "…" }]);
+    } catch (e) {
+      setErrMsg("CORE didn't respond — check that the backend function is deployed and GROQ_API_KEY is set in Netlify.");
+    }
+    setBusy(false);
+  };
+
+  const SpeechRecognitionClass = typeof window !== "undefined" ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
+  const startVoice = () => {
+    if (!SpeechRecognitionClass) return;
+    const rec = new SpeechRecognitionClass();
+    rec.lang = "en-US";
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    rec.onresult = (e) => { send(e.results[0][0].transcript); setListening(false); };
+    rec.onerror = () => setListening(false);
+    rec.onend = () => setListening(false);
+    recognitionRef.current = rec;
+    setListening(true);
+    rec.start();
+  };
+
+  const clearHistory = async () => {
+    if (!window.confirm("Clear CORE's conversation history?")) return;
+    await saveJSON("mios_core_history", []);
+    setMessages([]);
+  };
+
+  return (
+    <AppShell title="CORE" icon={ICONS.core} onBack={onBack} onRefresh={clearHistory}>
+      <div style={{display:"flex", flexDirection:"column", height:"calc(100vh - 90px)"}}>
+        <div ref={scrollRef} style={{flex:1, overflowY:"auto", marginBottom:10}}>
+          {!loaded && <div className="muted">LOADING…</div>}
+          {loaded && messages.length===0 && (
+            <div className="muted small" style={{lineHeight:1.7}}>
+              CORE has real tools — it can check weather, storm alerts, flights, ISS, Longshot telemetry, and control MI-Pulse directly. Try "what's my Longshot signal looking like" or "flash the lights blue."
+            </div>
+          )}
+          {messages.map((m, i) => (
+            <div key={i} className={`core-msg core-msg-${m.role}`}>
+              <div className="core-msg-role">{m.role === "user" ? "YOU" : "CORE"}</div>
+              <div className="core-msg-text">{m.content}</div>
+            </div>
+          ))}
+          {busy && <div className="core-msg core-msg-assistant"><div className="core-msg-role">CORE</div><div className="core-msg-text muted">thinking…</div></div>}
+        </div>
+        {errMsg && <div className="muted alert-text small" style={{marginBottom:8}}>{errMsg}</div>}
+        <div className="palette-input-row" style={{border:"1px solid var(--line)"}}>
+          <input
+            className="palette-input"
+            placeholder="Ask CORE anything about your systems…"
+            value={input}
+            onChange={e=>setInput(e.target.value)}
+            onKeyDown={e => { if (e.key==="Enter") send(input); }}
+          />
+          {SpeechRecognitionClass && (
+            <button className={`palette-mic ${listening?"listening":""}`} onClick={startVoice}>{listening ? "●" : "🎤"}</button>
+          )}
+          <button className="icon-btn" onClick={()=>send(input)} disabled={busy}>➤</button>
+        </div>
+      </div>
+    </AppShell>
+  );
+}
+
 const APPS = [
   { id:"weather", label:"WEATHER", icon:ICONS.weather, accent:"var(--cyan)", section:"LIVE FEEDS" },
   { id:"storm", label:"STORM ALERTS", icon:ICONS.storm, accent:"var(--amber)", section:"LIVE FEEDS" },
   { id:"flights", label:"FLIGHT TRACKER", icon:ICONS.flights, accent:"var(--cyan)", section:"LIVE FEEDS" },
   { id:"iss", label:"ISS TRACKER", icon:ICONS.iss, accent:"var(--cyan)", section:"LIVE FEEDS" },
   { id:"longshot", label:"LONGSHOT · MI-02", icon:ICONS.longshot, accent:"var(--green-ok)", section:"LIVE FEEDS" },
+  { id:"core", label:"CORE", icon:ICONS.core, accent:"var(--cyan)", section:"DEVICES" },
   { id:"pulse", label:"MI-PULSE", icon:ICONS.pulse, accent:"var(--amber)", section:"DEVICES" },
   { id:"projects", label:"PROJECT LOG", icon:ICONS.projects, accent:"var(--amber)", section:"TOOLS" },
   { id:"notes", label:"ENGINEERING NOTES", icon:ICONS.notes, accent:"var(--green-ok)", section:"TOOLS" },
@@ -1440,6 +1558,7 @@ function MIOS() {
       case "calc": return <CalculatorApp onBack={goBack} />;
       case "countdown": return <CountdownApp onBack={goBack} />;
       case "budget": return <BudgetApp onBack={goBack} />;
+      case "core": return <CoreApp onBack={goBack} />;
       case "pulse": return <PulseApp onBack={goBack} />;
       case "settings": return <SettingsApp onBack={goBack} />;
       case "backup": return <BackupApp onBack={goBack} />;
